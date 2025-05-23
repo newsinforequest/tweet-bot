@@ -6,10 +6,8 @@ import textwrap
 from bs4 import BeautifulSoup
 from datetime import datetime, timedelta, timezone
 
-# Zet je OpenAI API key
 openai.api_key = os.getenv("OPENAI_API_KEY")
 
-# Wereldwijde RSS-feeds per continent
 rss_feeds = {
     "Europe": ["https://www.theguardian.com/world/rss", "https://www.dw.com/en/top-stories/s-9097/rss"],
     "North America": ["http://rss.cnn.com/rss/edition.rss", "https://rss.nytimes.com/services/xml/rss/nyt/World.xml"],
@@ -22,7 +20,6 @@ rss_feeds = {
 def get_recent_articles(hours=2):
     since = datetime.now(timezone.utc) - timedelta(hours=hours)
     articles = []
-
     for region, feeds in rss_feeds.items():
         for url in feeds:
             feed = feedparser.parse(url)
@@ -37,7 +34,6 @@ def get_recent_articles(hours=2):
                             "link": entry.link,
                             "region": region
                         })
-
     return articles
 
 def find_common_topics(articles):
@@ -46,14 +42,11 @@ def find_common_topics(articles):
     for article in articles:
         key = article["title"].split(":")[0].strip().lower()
         topic_map[key].append(article)
-
-    # Filter onderwerpen die op minstens 2 continenten verschijnen
     valid_topics = []
     for topic, grouped in topic_map.items():
         regions = set([a["region"] for a in grouped])
         if len(regions) >= 2:
             valid_topics.append(grouped)
-
     return valid_topics
 
 def summarize_topic_to_tweet(topic_articles):
@@ -77,8 +70,7 @@ Text:
     return tweet
 
 def main():
-    print(f"
-🌍 Start éénmalige tweet - {datetime.now().isoformat(timespec='minutes')}")
+    print(f"🌍 Start éénmalige tweet - {datetime.now().isoformat(timespec='minutes')}")
     try:
         articles = get_recent_articles()
         common_topics = find_common_topics(articles)
