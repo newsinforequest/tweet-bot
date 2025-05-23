@@ -10,23 +10,24 @@ openai.api_key = os.getenv("OPENAI_API_KEY")
 def get_latest_headliner_article():
     url = "https://buitenland.headliner.nl/"
     response = requests.get(url)
+    if response.status_code != 200:
+        raise Exception("Kon de pagina niet laden: status", response.status_code)
+
     soup = BeautifulSoup(response.text, "html.parser")
 
-    # Zoek het eerste artikel (meest recent)
-    first_article = soup.find("a", class_="ArticleListItem-link")
-    if not first_article:
-        raise Exception("Geen artikelen gevonden op headliner.nl")
+    # Zoek het eerste artikel via herkenbare tekst-structuur
+    article_links = soup.find_all("a", href=True)
+    for link in article_links:
+        href = link["href"]
+        if href.startswith("/artikel/"):
+            article_url = "https://buitenland.headliner.nl" + href
+            article_page = requests.get(article_url)
+            article_soup = BeautifulSoup(article_page.text, "html.parser")
+            paragraphs = article_soup.find_all("p")
+            full_text = " ".join(p.get_text() for p in paragraphs[:5])  # Max 5 alinea's
+            return full_text.strip(), article_url
 
-    article_url = first_article["href"]
-    if not article_url.startswith("http"):
-        article_url = "https://buitenland.headliner.nl" + article_url
-
-    article_page = requests.get(article_url)
-    article_soup = BeautifulSoup(article_page.text, "html.parser")
-
-    paragraphs = article_soup.find_all("p")
-    full_text = " ".join(p.get_text() for p in paragraphs[:5])  # Max 5 alinea's
-    return full_text.strip(), article_url
+    raise Exception("Geen geschikte artikelen gevonden op buitenland.headliner.nl")
 
 def summarize_to_tweet(text, url):
     prompt = f"""
