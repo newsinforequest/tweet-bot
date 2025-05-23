@@ -1,33 +1,29 @@
 import requests
-from bs4 import BeautifulSoup
+import feedparser
 import openai
 import os
 import textwrap
+from bs4 import BeautifulSoup
 
 # Zet je OpenAI API key
 openai.api_key = os.getenv("OPENAI_API_KEY")
 
-def get_latest_headliner_article():
-    url = "https://buitenland.headliner.nl/"
-    response = requests.get(url)
-    if response.status_code != 200:
-        raise Exception("Kon de pagina niet laden: status", response.status_code)
+def get_latest_article_from_rss():
+    rss_url = "https://buitenland.headliner.nl/rss"
+    feed = feedparser.parse(rss_url)
 
-    soup = BeautifulSoup(response.text, "html.parser")
+    if not feed.entries:
+        raise Exception("Geen artikelen gevonden in de RSS-feed.")
 
-    # Zoek het eerste artikel via herkenbare tekst-structuur
-    article_links = soup.find_all("a", href=True)
-    for link in article_links:
-        href = link["href"]
-        if href.startswith("/artikel/"):
-            article_url = "https://buitenland.headliner.nl" + href
-            article_page = requests.get(article_url)
-            article_soup = BeautifulSoup(article_page.text, "html.parser")
-            paragraphs = article_soup.find_all("p")
-            full_text = " ".join(p.get_text() for p in paragraphs[:5])  # Max 5 alinea's
-            return full_text.strip(), article_url
+    entry = feed.entries[0]
+    article_url = entry.link
+    article_page = requests.get(article_url)
+    article_soup = BeautifulSoup(article_page.text, "html.parser")
 
-    raise Exception("Geen geschikte artikelen gevonden op buitenland.headliner.nl")
+    paragraphs = article_soup.find_all("p")
+    full_text = " ".join(p.get_text() for p in paragraphs[:5])
+
+    return full_text.strip(), article_url
 
 def summarize_to_tweet(text, url):
     prompt = f"""
@@ -50,8 +46,8 @@ Text:
     return tweet
 
 def main():
-    print("✅ Nieuwsartikel ophalen...")
-    article_text, article_url = get_latest_headliner_article()
+    print("✅ RSS-artikel ophalen...")
+    article_text, article_url = get_latest_article_from_rss()
 
     print("🧠 Samenvatting genereren...")
     tweet = summarize_to_tweet(article_text, article_url)
