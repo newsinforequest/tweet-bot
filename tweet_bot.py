@@ -5,9 +5,9 @@ import tweepy
 import os
 import requests
 from bs4 import BeautifulSoup
-import tempfile
+import html
+import re
 
-# ✅ Twitter authenticatie
 def authenticate_v2():
     client = tweepy.Client(
         consumer_key=os.getenv("TWITTER_API_KEY"),
@@ -17,7 +17,6 @@ def authenticate_v2():
     )
     return client
 
-# ✅ 5 RSS-feeds per continent
 RSS_FEEDS = {
     "Europa": [
         "https://www.nrc.nl/rss/",
@@ -56,7 +55,6 @@ RSS_FEEDS = {
     ]
 }
 
-# ✅ Artikelen ophalen en per continent mappen
 def fetch_articles():
     now = datetime.utcnow()
     one_hour_ago = now - timedelta(hours=1)
@@ -64,125 +62,90 @@ def fetch_articles():
 
     for continent, feeds in RSS_FEEDS.items():
         for url in feeds:
-            try:
-                feed = feedparser.parse(url)
-                for entry in feed.entries:
-                    try:
-                        pub_time = datetime(*entry.published_parsed[:6])
-                        if pub_time < one_hour_ago:
-                            continue
-                    except:
-                        continue
+            feed = feedparser.parse(url)
+            for entry in feed.entries:
+                try:
+                    pub_time = datetime(*entry.published_parsed[:6])
+                except (AttributeError, TypeError):
+                    continue
+                if pub_time < one_hour_ago:
+                    continue
 
-                    title = entry.title.strip()
-                    key = title.lower().strip()
+                title = html.unescape(entry.title.strip())
+                content = html.unescape(get_article_text(entry))
+                if len(content) < 400:
+                    continue
 
-                    if key not in articles:
-                        articles[key] = {
-                            "title": title,
-                            "summary": entry.get("summary", ""),
-                            "published": pub_time,
-                            "continents": set(),
-                            "sources": set(),
-                            "entry": entry
-                        }
+                key = (title, content)
+                if key not in articles:
+                    articles[key] = {"continents": set(), "published": pub_time, "image": extract_image_url(entry)}
+                articles[key]["continents"].add(continent)
 
-                    articles[key]["continents"].add(continent)
-                    articles[key]["sources"].add(url)
+    return articles
 
-            except Exception as e:
-                print(f"⚠️ Fout bij {url}: {e}")
+def get_article_text(entry):
+    if hasattr(entry, 'summary'):
+        return re.sub(r'<[^>]+>', '', entry.summary)
+    return ""
 
-    return list(articles.values())
-
-# ✅ Afbeeldings-URL extraheren
 def extract_image_url(entry):
-    if "media_content" in entry and entry.media_content:
-        return entry.media_content[0].get("url")
-    if "summary" in entry:
-        soup = BeautifulSoup(entry.summary, "html.parser")
-        img = soup.find("img")
-        if img and img.get("src"):
-            return img["src"]
+    if "media_content" in entry:
+        return entry.media_content[0].get('url')
+    elif hasattr(entry, 'summary'):
+        soup = BeautifulSoup(entry.summary, 'html.parser')
+        img = soup.find('img')
+        if img and img.get('src'):
+            return img['src']
     return None
 
-# ✅ Download afbeelding lokaal
-def download_image(url):
-    try:
-        response = requests.get(url, timeout=10)
-        if response.status_code == 200:
-            temp = tempfile.NamedTemporaryFile(delete=False, suffix=".jpg")
-            temp.write(response.content)
-            temp.close()
-            return temp.name
-    except Exception as e:
-        print(f"⚠️ Download afbeelding mislukt: {e}")
-    return None
+def generate_clickbait(text):
+    words = text.split()
+    return ' '.join(words[:min(5, len(words))]).upper()
 
-# ✅ Tweet genereren (met clickbait headline)
-def generate_tweet(title, summary):
-    headline = ' '.join(title.split()[:5]).upper()
-    body = summary.strip().replace('\n', ' ')
-    tweet = f"{headline} 🚨\n\n{body}"
-    tweet = tweet.strip()
-
+def compose_tweet(title, content):
+    headline = generate_clickbait(title)
+    rest = content.strip().replace('\n', ' ')
+    tweet = f"{headline} 🚨 {rest}"
     if len(tweet) > 280:
-        tweet = tweet[:279] + "…"
-    elif len(tweet) < 270:
-        tweet += " #BreakingNews"
+        tweet = tweet[:277] + "..."
+    if len(tweet) < 270:
+        return None
     return tweet
 
-# ✅ Artikel selecteren op basis van voorkeuren
 def select_best_article(articles):
-    if not articles:
-        return None
+    sorted_articles = sorted(articles.items(), key=lambda kv: (-len(kv[1]['continents']), -kv[1]['published'].timestamp()))
+    return sorted_articles[0] if sorted_articles else (None, None)
 
-    # Prioriteit 1: in meerdere continenten
-    multi_continent = [a for a in articles if len(a["continents"]) >= 2]
-    if multi_continent:
-        return random.choice(multi_continent)
-
-    # Prioriteit 2: meerdere bronnen
-    multi_source = [a for a in articles if len(a["sources"]) >= 2]
-    if multi_source:
-        return random.choice(multi_source)
-
-    # Prioriteit 3: meest recente
-    return sorted(articles, key=lambda a: a["published"], reverse=True)[0]
-
-# ✅ Tweet plaatsen (met optionele afbeelding)
-def tweet_article(client, article):
-    tweet = generate_tweet(article["title"], article["summary"])
-    image_url = extract_image_url(article["entry"])
+def tweet_article(client, title, content, image_url=None):
+    tweet = compose_tweet(title, content)
+    if not tweet:
+        print("⛔ Tweet te kort, overgeslagen.")
+        return
     media_id = None
-
     if image_url:
-        image_path = download_image(image_url)
-        if image_path:
-            try:
-                media = client.media_upload(filename=image_path)
-                media_id = media.media_id
-            except Exception as e:
-                print(f"⚠️ Afbeelding upload fout: {e}")
-
+        try:
+            img_data = requests.get(image_url).content
+            with open("temp.jpg", "wb") as f:
+                f.write(img_data)
+            media = client.media_upload(filename="temp.jpg")
+            media_id = media.media_id
+        except:
+            pass
     try:
-        if media_id:
-            response = client.create_tweet(text=tweet, media_ids=[media_id])
-        else:
-            response = client.create_tweet(text=tweet)
-        print(f"✅ Tweet geplaatst (ID: {response.data['id']})")
+        client.create_tweet(text=tweet, media_ids=[media_id] if media_id else None)
+        print("✅ Tweet geplaatst:", tweet)
     except Exception as e:
-        print(f"⚠️ Tweet fout: {e}")
+        print(f"⚠️ Tweet mislukt: {e}")
 
-# ✅ Main
 def main():
     client = authenticate_v2()
     articles = fetch_articles()
-    article = select_best_article(articles)
-    if article:
-        tweet_article(client, article)
-    else:
+    title_content, meta = select_best_article(articles)
+    if not title_content:
         print("❌ Geen geschikt artikel gevonden.")
+        return
+    title, content = title_content
+    tweet_article(client, title, content, meta["image"])
 
 if __name__ == "__main__":
     main()
