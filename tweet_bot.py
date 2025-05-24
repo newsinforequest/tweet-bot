@@ -58,14 +58,22 @@ FEEDS = {
 
 # 🆘 Fallback-feeds (gevalideerd)
 FALLBACK_FEEDS = [
+    "https://feeds.bbci.co.uk/news/world/rss.xml",
+    "https://rss.cnn.com/rss/edition_world.rss",
+    "https://cnbc.com/id/100727362/device/rss/rss.html",
+    "https://abcnews.go.com/abcnews/internationalheadlines",
+    "https://www.aljazeera.com/xml/rss/all.xml",
+    "https://www.cbsnews.com/latest/rss/world",
+    "https://www.france24.com/en/rss",
+    "https://www.buzzfeed.com/world.xml",
+    "https://www.nytimes.com/svc/collections/v1/publishers/nyt/world/index.xml",
     "https://rss.cnn.com/rss/cnn_topstories.rss",
     "https://feeds.bbci.co.uk/news/rss.xml",
     "https://rss.nytimes.com/services/xml/rss/nyt/HomePage.xml",
-    "https://www.aljazeera.com/xml/rss/all.xml",
     "https://feeds.foxnews.com/foxnews/latest",
     "https://www.dw.com/en/top-stories/s-9097/rss",
     "https://globalnews.ca/feed/",
-    "https://www.cbc.ca/cmlink/rss-topstories"
+    "https://www.cbc.ca/webfeed/rss/rss-world"
 ]
 
 # 🧠 Thema fallback-feeds (evergreen topics)
@@ -83,12 +91,13 @@ def is_recent(entry):
     return (datetime.datetime.utcnow() - pub_date) <= datetime.timedelta(hours=1)
 
 # 🤖 Samenvatten tussen 260–280 tekens
+
 def summarize_to_exact_length(text, min_len=260, max_len=280, max_attempts=5):
     for attempt in range(max_attempts):
         prompt = (
             f"Summarize the following news text in English in exactly one paragraph. "
-            f"Make it concise but informative, and aim for a length between {min_len} and {max_len} characters:\n\n"
-            f"{text}\n\nSummary:"
+            f"If the original summary is too short, intelligently add relevant context or implications to meet the length requirement.\n\n"
+            f"Text:\n{text}\n\nSummary:"
         )
         response = openai.ChatCompletion.create(
             model="gpt-4",
@@ -131,15 +140,15 @@ def gather_articles(feeds):
                 print(f"⚠️ Fout bij feed {url}: {e}")
                 continue
             for entry in feed.entries:
-                if is_recent(entry):
-                    summary = entry.summary if hasattr(entry, 'summary') else entry.title
-                    if len(summary) >= 400:
-                        articles.append({
-                            "continent": continent,
-                            "title": entry.title,
-                            "summary": summary,
-                            "link": entry.link
-                        })
+                if not is_recent(entry):
+                    continue
+                summary = entry.summary if hasattr(entry, 'summary') else entry.title
+                articles.append({
+                    "continent": continent,
+                    "title": entry.title,
+                    "summary": summary,
+                    "link": entry.link
+                })
     return articles
 
 # 🌐 Voorkeur 1 en 2 selectie
@@ -155,14 +164,11 @@ def select_preferred_article(articles):
         title_map.setdefault(title, []).append(article)
         continent_map.setdefault(title, set()).add(article["continent"])
 
-    # Voorkeur 1: onderwerp op meerdere continenten
-    preferred = [title for title, continents in continent_map.items() if len(continents) >= 2]
+    # Alle titels gesorteerd op frequentie
+    all_titles = sorted(freq_counter.keys(), key=lambda t: (freq_counter[t], len(continent_map[t])), reverse=True)
 
-    # Voorkeur 2: onderwerp meerdere keren in uur
-    preferred = sorted(preferred, key=lambda t: freq_counter[t], reverse=True)
-
-    if preferred:
-        return title_map[preferred[0]][0]  # eerste artikel van voorkeursitem
+    if all_titles:
+        return title_map[all_titles[0]][0]
     return None
 
 # 🐦 Tweet maken en posten
@@ -172,7 +178,6 @@ def tweet_article(article):
     tweet = f"{clickbait}: {summary} {article['link']}"
 
     if len(tweet) > 280:
-        # Optioneel: clickbait afkappen als het geheel te lang is
         excess = len(tweet) - 280
         clickbait = clickbait[:-excess - 1]  # -1 voor de dubbele punt
         tweet = f"{clickbait}: {summary} {article['link']}"
@@ -192,19 +197,14 @@ def run_bot():
 
     if not article:
         print("⚠️ Geen geschikt onderwerp gevonden, gebruik fallback feeds.")
-        fallback_feed_map = {f"Fallback{i}": [url] for i, url in enumerate(FALLBACK_FEEDS)}
+        fallback_feed_map = {"Fallback": FALLBACK_FEEDS}
         fallback_articles = gather_articles(fallback_feed_map)
-
-        fallback_counter = Counter([a["title"] for a in fallback_articles])
-        if fallback_counter:
-            top_fallback_title = fallback_counter.most_common(1)[0][0]
-            article = next(a for a in fallback_articles if a["title"] == top_fallback_title)
+        article = select_preferred_article(fallback_articles)
 
     if not article:
         print("⚠️ Nog steeds geen artikel gevonden, gebruik thema fallback.")
         theme_articles = gather_articles(THEME_FEEDS)
-        if theme_articles:
-            article = random.choice(theme_articles)
+        article = select_preferred_article(theme_articles)
 
     if article:
         tweet_article(article)
