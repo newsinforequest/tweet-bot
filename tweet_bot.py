@@ -3,15 +3,26 @@ import random
 from datetime import datetime, timedelta
 import tweepy
 import os
+import requests
 from bs4 import BeautifulSoup
 
-# Twitter API authenticatie (alleen v2 client)
+# Twitter API authenticatie
 def authenticate_v2():
     return tweepy.Client(
         consumer_key=os.getenv("TWITTER_API_KEY"),
         consumer_secret=os.getenv("TWITTER_API_SECRET"),
         access_token=os.getenv("TWITTER_ACCESS_TOKEN"),
         access_token_secret=os.getenv("TWITTER_ACCESS_SECRET")
+    )
+
+def authenticate_v1():
+    return tweepy.API(
+        tweepy.OAuth1UserHandler(
+            os.getenv("TWITTER_API_KEY"),
+            os.getenv("TWITTER_API_SECRET"),
+            os.getenv("TWITTER_ACCESS_TOKEN"),
+            os.getenv("TWITTER_ACCESS_SECRET")
+        )
     )
 
 # RSS-feeds per continent (5 per continent)
@@ -53,40 +64,6 @@ RSS_FEEDS = {
     ]
 }
 
-# Fallback wereldwijde feeds (voorbeeld)
-FALLBACK_FEEDS = [
-    "https://rss.cnn.com/rss/cnn_topstories.rss",
-    "https://feeds.bbci.co.uk/news/rss.xml",
-    "https://rss.nytimes.com/services/xml/rss/nyt/HomePage.xml",
-    "https://www.aljazeera.com/xml/rss/all.xml",
-    "https://feeds.foxnews.com/foxnews/latest",
-    "https://www.reutersagency.com/feed/?best-topics=top-news&post_type=best",
-    "https://www.washingtonpost.com/rss/",
-    "https://www.nbcnews.com/id/3032091/device/rss/rss.xml",
-    "https://www.cbsnews.com/latest/rss/main",
-    "https://abcnews.go.com/abcnews/topstories",
-    "https://www.reuters.com/tools/rss",
-    "https://www.economist.com/the-world-this-week/rss.xml",
-    "https://www.dw.com/en/top-stories/s-9097/rss",
-    "https://www.apnews.com/rss",
-    "https://www.bloomberg.com/feed/podcast/taking-stock.xml",
-    "https://www.aljazeera.com/xml/rss/all.xml",
-    "https://www.cnbc.com/id/100003114/device/rss/rss.html",
-    "https://globalvoices.org/-/world/feed/",
-    "https://feeds.bbci.co.uk/news/world/rss.xml",
-    "https://www.theguardian.com/uk/rss",
-    "https://www.telegraph.co.uk/news/rss.xml",
-    "https://rss.itv.com/news",
-    "https://www.independent.co.uk/news/uk/rss",
-    "https://globalnews.ca/feed/",
-    "https://www.ctvnews.ca/rss/ctvnews-ca-top-stories-public-rss-1.822009",
-    "https://www.cbc.ca/cmlink/rss-topstories",
-    "https://www.smh.com.au/rss/feed.xml",
-    "https://www.abc.net.au/news/feed/51120/rss.xml",
-    "https://www.news.com.au/feed",
-    # ... vul aan tot 100 feeds ...
-]
-
 # HTML opschonen
 def clean_html(raw_html):
     return BeautifulSoup(raw_html, "html.parser").get_text()
@@ -109,35 +86,17 @@ def fetch_articles():
                     if pub < cutoff:
                         continue
                     title = entry.title.strip()
+                    link = entry.link
                     summary = clean_html(entry.summary if 'summary' in entry else "")
                     if len(summary) >= 400:
                         if title not in articles:
-                            articles[title] = {"summary": summary, "link": entry.link, "regions": set()}
+                            articles[title] = {"summary": summary, "link": link, "regions": set(), "image": None}
                         articles[title]["regions"].add(region)
+                        if 'media_content' in entry:
+                            articles[title]["image"] = entry.media_content[0].get('url', None)
             except Exception:
                 continue
     return articles
-
-# Alternatief: fallback artikel zoeken
-def fetch_fallback_article():
-    for feed_url in FALLBACK_FEEDS:
-        try:
-            parsed = feedparser.parse(feed_url)
-            for entry in parsed.entries:
-                pub = datetime(*entry.published_parsed[:6])
-                if datetime.utcnow() - pub > timedelta(hours=1):
-                    continue
-                title = entry.title.strip()
-                summary = clean_html(entry.summary if 'summary' in entry else "")
-                if len(summary) >= 400:
-                    return {
-                        "title": title,
-                        "summary": summary,
-                        "link": entry.link
-                    }
-        except Exception:
-            continue
-    return None
 
 # Selecteer artikel met voorkeuren
 def select_article(articles):
@@ -166,31 +125,36 @@ def summarize_to_tweet(summary, max_len=280, min_len=270):
         return text + ("." * (min_len - len(text)))
     return text
 
-# Tweet publiceren (zonder media)
-def tweet_article(client, title, summary):
+# Tweet publiceren met afbeelding (media upload via v1.1)
+def tweet_article(client_v2, client_v1, title, summary, image_url=None):
     tweet_title = generate_title(title)
     tweet_body = summarize_to_tweet(summary)
     full_text = f"{tweet_title.upper()}\n\n{tweet_body}"
     try:
-        response = client.create_tweet(text=full_text)
+        if image_url:
+            filename = "temp.jpg"
+            with open(filename, 'wb') as f:
+                f.write(requests.get(image_url).content)
+            media = client_v1.media_upload(filename)
+            response = client_v2.create_tweet(text=full_text, media_ids=[media.media_id])
+            os.remove(filename)
+        else:
+            response = client_v2.create_tweet(text=full_text)
         print("✅ Tweet geplaatst:", response.data["id"])
     except Exception as e:
         print("❌ Fout bij tweet:", e)
 
 # Main
 def main():
-    client = authenticate_v2()
+    client_v2 = authenticate_v2()
+    client_v1 = authenticate_v1()
     articles = fetch_articles()
     selection = select_article(articles)
     if selection:
         title, data = selection
-        tweet_article(client, title, data["summary"])
+        tweet_article(client_v2, client_v1, title, data["summary"], data["image"])
     else:
-        fallback = fetch_fallback_article()
-        if fallback:
-            tweet_article(client, fallback["title"], fallback["summary"])
-        else:
-            print("❌ Geen geschikt artikel gevonden.")
+        print("❌ Geen geschikt artikel gevonden.")
 
 if __name__ == "__main__":
     main()
