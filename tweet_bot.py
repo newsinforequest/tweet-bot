@@ -72,7 +72,6 @@ RSS_FEEDS = {
         "https://www.nationalgeographic.com/content/natgeo/en_us/index.rss",
         "https://www.voanews.com/api/epiqqe$omm",
         "https://www.hindustantimes.com/rss/topnews/rssfeed.xml",
-        "https://www.cbc.ca/cmlink/rss-topstories",
         "https://www.nzherald.co.nz/rss/"
     ]
 }
@@ -158,6 +157,7 @@ def detect_common_topic(articles):
 
 def rewrite_text(text, min_length=240, max_length=280):
     sentences = re.split(r'(?<=[.!?]) +', text)
+    best_candidate = ''
     for start in range(len(sentences)):
         rewritten = ''
         for end in range(start + 1, len(sentences) + 1):
@@ -167,22 +167,21 @@ def rewrite_text(text, min_length=240, max_length=280):
             rewritten = trial
         if min_length <= len(rewritten) <= max_length:
             return rewritten
-    return ''
+        if len(rewritten) > len(best_candidate):
+            best_candidate = rewritten
+    return best_candidate if len(best_candidate) >= min_length else ''
 
-def generate_clickbait(title):
-    words = title.split()
-    clickbait = ' '.join(words[:5]) if len(words) > 5 else title
-    return clickbait.upper()
+def generate_clickbait(text):
+    summary = rewrite_text(text, 20, 60)
+    return summary.upper()
 
-def tweet_article(client, title, summary):
-    if detect_language(summary) != "en":
+def tweet_article(client, summary_text):
+    if detect_language(summary_text) != "en":
         print("⚠️ Samenvatting is niet in het Engels, tweet wordt overgeslagen.")
         return
-    clickbait = generate_clickbait(title)
-    tweet = f"{clickbait}\n\n{summary}"
+    clickbait = generate_clickbait(summary_text)
+    tweet = f"{clickbait}\n\n{summary_text}"
     tweet = tweet.replace('\n', ' ').replace('\r', ' ').strip()
-    if len(tweet) > 280:
-        tweet = tweet[:279]
     try:
         response = client.create_tweet(text=tweet)
         print(f"✅ Tweet geplaatst: {tweet} (ID: {response.data['id']})")
@@ -203,7 +202,7 @@ def main():
             if 240 <= len(rewritten) <= 280:
                 if detect_language(rewritten) != "en":
                     rewritten = translate_to_english(rewritten)
-                tweet_article(client, best_title, rewritten)
+                tweet_article(client, rewritten)
                 return
             else:
                 articles = [a for a in articles if a["title"] != best_title]
