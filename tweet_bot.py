@@ -1,16 +1,16 @@
 import feedparser
-import openai
 import tweepy
 import os
 import datetime
 import random
 from time import sleep
 from collections import Counter
+from openai import OpenAI
 
 # ✅ API-sleutels uit environment
-openai.api_key = os.getenv("OPENAI_API_KEY")
+client = OpenAI(api_key=os.getenv("OPENAI_API_KEY"))
 
-client = tweepy.Client(
+client_twitter = tweepy.Client(
     consumer_key=os.getenv("API_KEY"),
     consumer_secret=os.getenv("API_SECRET"),
     access_token=os.getenv("ACCESS_TOKEN"),
@@ -99,13 +99,13 @@ def summarize_to_exact_length(text, min_len=260, max_len=280, max_attempts=5):
             f"If the original summary is too short, intelligently add relevant context or implications to meet the length requirement.\n\n"
             f"Text:\n{text}\n\nSummary:"
         )
-        response = openai.ChatCompletion.create(
+        response = client.chat.completions.create(
             model="gpt-4",
             messages=[{"role": "user", "content": prompt}],
             temperature=0.7,
             max_tokens=max_len + 20
         )
-        summary = response.choices[0].message["content"].strip()
+        summary = response.choices[0].message.content.strip()
         length = len(summary)
 
         if min_len <= length <= max_len:
@@ -121,13 +121,13 @@ def summarize_to_exact_length(text, min_len=260, max_len=280, max_attempts=5):
 # 🎯 Clickbait-titel van 1–5 woorden
 def generate_clickbait(title):
     prompt = f"Write a short, clickbait-style headline (1–5 words) based on the following news title:\n\n{title}"
-    response = openai.ChatCompletion.create(
+    response = client.chat.completions.create(
         model="gpt-4",
         messages=[{"role": "user", "content": prompt}],
         temperature=0.9,
         max_tokens=10
     )
-    return response.choices[0].message["content"].strip()
+    return response.choices[0].message.content.strip()
 
 # 📰 Artikelen verzamelen per feed
 def gather_articles(feeds):
@@ -183,7 +183,7 @@ def tweet_article(article):
         tweet = f"{clickbait}: {summary} {article['link']}"
 
     try:
-        response = client.create_tweet(text=tweet)
+        response = client_twitter.create_tweet(text=tweet)
         print(f"✅ Tweet geplaatst: {tweet}")
     except Exception as e:
         print(f"⚠️ Tweet mislukt: {e}")
