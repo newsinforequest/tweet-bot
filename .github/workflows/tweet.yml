@@ -3,9 +3,16 @@ name: Tweet Bot
 on:
   workflow_dispatch:
   schedule:
-    - cron: '0 */2 * * *'
-    - cron: '24 */2 * * *'
-    - cron: '48 */2 * * *'
+    - cron: '0 0 * * *'
+    - cron: '14 2 * * *'
+    - cron: '28 4 * * *'
+    - cron: '42 6 * * *'
+    - cron: '56 8 * * *'
+    - cron: '10 11 * * *'
+    - cron: '24 13 * * *'
+    - cron: '38 15 * * *'
+    - cron: '52 17 * * *'
+    - cron: '6 20 * * *'
 
 jobs:
   tweet:
