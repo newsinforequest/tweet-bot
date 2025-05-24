@@ -3,6 +3,19 @@ import random
 from datetime import datetime, timedelta
 import tweepy
 import os
+import requests
+from bs4 import BeautifulSoup
+import nltk
+from collections import Counter
+import re
+import time
+
+nltk.download('punkt')
+nltk.download('stopwords')
+from nltk.corpus import stopwords
+from nltk.tokenize import word_tokenize
+
+EN_STOPWORDS = set(stopwords.words('english'))
 
 # Twitter API v2 authenticatie via Tweepy Client
 def authenticate_v2():
@@ -12,13 +25,6 @@ def authenticate_v2():
         access_token=os.getenv("TWITTER_ACCESS_TOKEN"),
         access_token_secret=os.getenv("TWITTER_ACCESS_SECRET")
     )
-    
-    print("🔐 AUTH DEBUG INFO:")
-    print("API_KEY set:", bool(os.getenv("TWITTER_API_KEY")))
-    print("API_SECRET set:", bool(os.getenv("TWITTER_API_SECRET")))
-    print("ACCESS_TOKEN set:", bool(os.getenv("TWITTER_ACCESS_TOKEN")))
-    print("ACCESS_TOKEN_SECRET set:", bool(os.getenv("TWITTER_ACCESS_SECRET")))
-    
     return client
 
 # Werelddeel RSS-feeds
@@ -60,57 +66,86 @@ RSS_FEEDS = {
     ]
 }
 
-def fetch_articles():
-    print("✅ Nieuwsartikel ophalen...")
+def fetch_recent_articles():
     now = datetime.utcnow()
     one_hour_ago = now - timedelta(hours=1)
-    seen_titles = {}
+    articles = []
 
-    for continent, feeds in RSS_FEEDS.items():
-        for feed_url in feeds:
+    for feeds in RSS_FEEDS.values():
+        for url in feeds:
             try:
-                feed = feedparser.parse(feed_url)
+                feed = feedparser.parse(url)
                 for entry in feed.entries:
                     try:
                         pub_time = datetime(*entry.published_parsed[:6])
                     except (AttributeError, TypeError):
                         continue
-
                     if pub_time >= one_hour_ago:
-                        title = entry.title.strip()
-                        if title not in seen_titles:
-                            seen_titles[title] = set()
-                        seen_titles[title].add(continent)
+                        articles.append({
+                            "title": entry.title.strip(),
+                            "link": entry.link.strip(),
+                            "published": pub_time
+                        })
             except Exception as e:
-                print(f"⚠️ Fout bij verwerken van feed: {feed_url} - {e}")
+                print(f"⚠️ Fout bij feed {url}: {e}")
 
-    return seen_titles
+    return articles
+
+def extract_article_text(url):
+    try:
+        headers = {"User-Agent": "Mozilla/5.0"}
+        resp = requests.get(url, headers=headers, timeout=10)
+        soup = BeautifulSoup(resp.content, 'html.parser')
+
+        # Probeer hoofdtekst te vinden op basis van tag/density
+        paragraphs = soup.find_all('p')
+        text = ' '.join([p.get_text() for p in paragraphs])
+        text = re.sub(r'\s+', ' ', text)
+        return text.strip()
+    except Exception as e:
+        print(f"⚠️ Kan artikel niet openen: {url} - {e}")
+        return ""
+
+def detect_common_topic(articles):
+    all_words = []
+    article_bodies = {}
+
+    for article in articles:
+        content = extract_article_text(article["link"])
+        article_bodies[article["title"]] = content
+
+        tokens = word_tokenize(content.lower())
+        words = [w for w in tokens if w.isalpha() and w not in EN_STOPWORDS]
+        all_words.extend(words)
+
+    common_words = Counter(all_words).most_common(10)
+    if not common_words:
+        return None, article_bodies
+
+    top_keyword = common_words[0][0]
+    matching_article = next((t for t, body in article_bodies.items() if top_keyword in body.lower()), None)
+    return matching_article, article_bodies
+
+def summarize_text(text, length=270):
+    sentences = nltk.sent_tokenize(text)
+    summary = ''
+    for s in sentences:
+        if len(summary) + len(s) <= length:
+            summary += ' ' + s
+        else:
+            break
+    return summary.strip()[:280]
 
 def generate_clickbait(title):
     words = title.split()
-    if len(words) <= 5:
-        return title
-    return ' '.join(words[:5]) + "..."
+    return ' '.join(words[:5]) if len(words) > 5 else title
 
-def select_article(articles, last_tweet=""):
-    candidates = [title for title, continents in articles.items() if len(continents) >= 2]
-    if candidates:
-        selected = random.choice(candidates)
-    elif articles:
-        sorted_articles = sorted(articles.items(), key=lambda item: len(item[1]), reverse=True)
-        top_titles = [t for t, v in sorted_articles if len(v) == len(sorted_articles[0][1])]
-        if last_tweet:
-            top_titles = sorted(top_titles, key=lambda t: overlap(t, last_tweet))
-        selected = top_titles[0]
-    else:
-        return None
-    return selected
-
-def overlap(a, b):
-    return len(set(a.lower().split()) & set(b.lower().split()))
-
-def tweet_article(client, text):
-    tweet = generate_clickbait(text).replace('\n', ' ').replace('\r', '')
+def tweet_article(client, title, summary):
+    clickbait = generate_clickbait(title)
+    tweet = f"{clickbait}\n\n{summary}"
+    tweet = tweet.replace('\n', ' ').replace('\r', ' ').strip()
+    if len(tweet) > 280:
+        tweet = tweet[:279]
     try:
         response = client.create_tweet(text=tweet)
         print(f"✅ Tweet geplaatst: {tweet} (ID: {response.data['id']})")
@@ -119,15 +154,17 @@ def tweet_article(client, text):
 
 def main():
     client = authenticate_v2()
-    articles = fetch_articles()
+    articles = fetch_recent_articles()
     if not articles:
-        print("❌ Geen recente artikelen gevonden.")
+        print("❌ Geen artikelen gevonden.")
         return
-    selected_title = select_article(articles)
-    if selected_title:
-        tweet_article(client, selected_title)
+
+    best_title, bodies = detect_common_topic(articles)
+    if best_title and best_title in bodies:
+        summary = summarize_text(bodies[best_title])
+        tweet_article(client, best_title, summary)
     else:
-        print("❌ Geen geschikte tweet gevonden.")
+        print("❌ Geen geschikt artikel gevonden.")
 
 if __name__ == "__main__":
     main()
