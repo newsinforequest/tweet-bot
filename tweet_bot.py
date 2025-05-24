@@ -101,7 +101,6 @@ def extract_article_text(url):
         resp = requests.get(url, headers=headers, timeout=10)
         soup = BeautifulSoup(resp.content, 'html.parser')
 
-        # Probeer hoofdtekst te vinden op basis van tag/density
         paragraphs = soup.find_all('p')
         text = ' '.join([p.get_text() for p in paragraphs])
         text = re.sub(r'\s+', ' ', text)
@@ -116,8 +115,9 @@ def detect_common_topic(articles):
 
     for article in articles:
         content = extract_article_text(article["link"])
+        if len(content.split()) < 100:
+            continue  # sla korte of lege artikelen over
         article_bodies[article["title"]] = content
-
         tokens = re.findall(r'\b\w+\b', content.lower())
         words = [w for w in tokens if w.isalpha() and w not in EN_STOPWORDS]
         all_words.extend(words)
@@ -126,9 +126,12 @@ def detect_common_topic(articles):
     if not common_words:
         return None, article_bodies
 
-    top_keyword = common_words[0][0]
-    matching_article = next((t for t, body in article_bodies.items() if top_keyword in body.lower()), None)
-    return matching_article, article_bodies
+    for word, _ in common_words:
+        for t, body in article_bodies.items():
+            if word in body.lower():
+                return t, article_bodies
+
+    return None, article_bodies
 
 def summarize_text(text, length=270):
     sentences = re.split(r'(?<=[.!?]) +', text)
@@ -166,6 +169,9 @@ def main():
     best_title, bodies = detect_common_topic(articles)
     if best_title and best_title in bodies:
         summary = summarize_text(bodies[best_title])
+        if len(summary) < 100:
+            print("❌ Samenvatting te kort, tweet wordt overgeslagen.")
+            return
         tweet_article(client, best_title, summary)
     else:
         print("❌ Geen geschikt artikel gevonden.")
