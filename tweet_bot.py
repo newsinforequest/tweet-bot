@@ -1,15 +1,25 @@
 import feedparser
 import random
-import time
 from datetime import datetime, timedelta
 import tweepy
 import os
 
-# Twitter API keys (vervang met je eigen keys of stel in als secrets/environment vars)
-API_KEY = os.getenv("TWITTER_API_KEY")
-API_SECRET = os.getenv("TWITTER_API_SECRET")
-ACCESS_TOKEN = os.getenv("TWITTER_ACCESS_TOKEN")
-ACCESS_TOKEN_SECRET = os.getenv("TWITTER_ACCESS_SECRET")
+# Twitter API v2 authenticatie via Tweepy Client
+def authenticate_v2():
+    client = tweepy.Client(
+        consumer_key=os.getenv("TWITTER_API_KEY"),
+        consumer_secret=os.getenv("TWITTER_API_SECRET"),
+        access_token=os.getenv("TWITTER_ACCESS_TOKEN"),
+        access_token_secret=os.getenv("TWITTER_ACCESS_SECRET")
+    )
+    
+    print("🔐 AUTH DEBUG INFO:")
+    print("API_KEY set:", bool(os.getenv("TWITTER_API_KEY")))
+    print("API_SECRET set:", bool(os.getenv("TWITTER_API_SECRET")))
+    print("ACCESS_TOKEN set:", bool(os.getenv("TWITTER_ACCESS_TOKEN")))
+    print("ACCESS_TOKEN_SECRET set:", bool(os.getenv("TWITTER_ACCESS_SECRET")))
+    
+    return client
 
 # Werelddeel RSS-feeds
 RSS_FEEDS = {
@@ -55,7 +65,7 @@ def fetch_articles():
     now = datetime.utcnow()
     one_hour_ago = now - timedelta(hours=1)
     seen_titles = {}
-    
+
     for continent, feeds in RSS_FEEDS.items():
         for feed_url in feeds:
             try:
@@ -73,21 +83,20 @@ def fetch_articles():
                         seen_titles[title].add(continent)
             except Exception as e:
                 print(f"⚠️ Fout bij verwerken van feed: {feed_url} - {e}")
-    
+
     return seen_titles
 
 def generate_clickbait(title):
     words = title.split()
     if len(words) <= 5:
         return title
-    return ' '.join(words[:5])
+    return ' '.join(words[:5]) + "..."
 
 def select_article(articles, last_tweet=""):
     candidates = [title for title, continents in articles.items() if len(continents) >= 2]
     if candidates:
         selected = random.choice(candidates)
     elif articles:
-        # Kies de meest besproken of willekeurig
         sorted_articles = sorted(articles.items(), key=lambda item: len(item[1]), reverse=True)
         top_titles = [t for t, v in sorted_articles if len(v) == len(sorted_articles[0][1])]
         if last_tweet:
@@ -100,41 +109,23 @@ def select_article(articles, last_tweet=""):
 def overlap(a, b):
     return len(set(a.lower().split()) & set(b.lower().split()))
 
-def tweet_article(api, text):
-    tweet = generate_clickbait(text)
-    tweet = tweet.replace('\n', ' ').replace('\r', '')
+def tweet_article(client, text):
+    tweet = generate_clickbait(text).replace('\n', ' ').replace('\r', '')
     try:
-        api.update_status(tweet)
-        print(f"✅ Tweet geplaatst: {tweet}")
+        response = client.create_tweet(text=tweet)
+        print(f"✅ Tweet geplaatst: {tweet} (ID: {response.data['id']})")
     except Exception as e:
         print(f"⚠️ Tweet mislukt: {e}")
 
-def authenticate():
-    print("🔐 AUTH DEBUG INFO:")
-    print(f"API_KEY set: {bool(API_KEY)}")
-    print(f"API_SECRET set: {bool(API_SECRET)}")
-    print(f"ACCESS_TOKEN set: {bool(ACCESS_TOKEN)}")
-    print(f"ACCESS_TOKEN_SECRET set: {bool(ACCESS_TOKEN_SECRET)}")
-    auth = tweepy.OAuth1UserHandler(API_KEY, API_SECRET, ACCESS_TOKEN, ACCESS_TOKEN_SECRET)
-    api = tweepy.API(auth)
-    try:
-        api.verify_credentials()
-        print("✅ Authenticated with Twitter.")
-    except Exception as e:
-        print(f"❌ Auth failed: {e}")
-    return api
-
 def main():
-    api = authenticate()
-    last_tweet = ""
+    client = authenticate_v2()
     articles = fetch_articles()
     if not articles:
         print("❌ Geen recente artikelen gevonden.")
         return
-    selected_title = select_article(articles, last_tweet)
+    selected_title = select_article(articles)
     if selected_title:
-        tweet_article(api, selected_title)
-        last_tweet = selected_title
+        tweet_article(client, selected_title)
     else:
         print("❌ Geen geschikte tweet gevonden.")
 
