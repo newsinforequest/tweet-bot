@@ -1,0 +1,32 @@
+name: Tweet Bot
+
+on:
+  workflow_dispatch:
+  schedule:
+    - cron: '0 */2 * * *'
+    - cron: '24 */2 * * *'
+    - cron: '48 */2 * * *'
+
+jobs:
+  tweet:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Repository ophalen
+        uses: actions/checkout@v3
+
+      - name: Python installeren
+        uses: actions/setup-python@v4
+        with:
+          python-version: '3.11'
+
+      - name: Afhankelijkheden installeren
+        run: pip install -r requirements.txt
+
+      - name: Tweet plaatsen
+        env:
+          TWITTER_API_KEY: ${{ secrets.TWITTER_API_KEY }}
+          TWITTER_API_SECRET: ${{ secrets.TWITTER_API_SECRET }}
+          TWITTER_ACCESS_TOKEN: ${{ secrets.TWITTER_ACCESS_TOKEN }}
+          TWITTER_ACCESS_SECRET: ${{ secrets.TWITTER_ACCESS_SECRET }}
+        run: python tweet_bot.py
