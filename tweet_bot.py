@@ -5,10 +5,10 @@ import datetime
 import random
 from time import sleep
 from collections import Counter
-import openai
+from openai import OpenAI
 
 # ✅ API-sleutels uit environment
-openai.api_key = os.getenv("OPENAI_API_KEY")
+client = OpenAI(api_key=os.getenv("OPENAI_API_KEY"))
 
 client_twitter = tweepy.Client(
     consumer_key=os.getenv("API_KEY"),
@@ -99,7 +99,7 @@ def summarize_to_exact_length(text, min_len=260, max_len=280, max_attempts=5):
             f"If the original summary is too short, intelligently add relevant context or implications to meet the length requirement.\n\n"
             f"Text:\n{text}\n\nSummary:"
         )
-        response = openai.ChatCompletion.create(
+        response = client.chat.completions.create(
             model="gpt-4",
             messages=[{"role": "user", "content": prompt}],
             temperature=0.7,
@@ -121,7 +121,7 @@ def summarize_to_exact_length(text, min_len=260, max_len=280, max_attempts=5):
 # 🎯 Clickbait-titel van 1–5 woorden
 def generate_clickbait(title):
     prompt = f"Write a short, clickbait-style headline (1–5 words) based on the following news title:\n\n{title}"
-    response = openai.ChatCompletion.create(
+    response = client.chat.completions.create(
         model="gpt-4",
         messages=[{"role": "user", "content": prompt}],
         temperature=0.9,
