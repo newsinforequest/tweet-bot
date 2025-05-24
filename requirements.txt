@@ -2,4 +2,4 @@ tweepy
 feedparser
 requests
 beautifulsoup4
-transformers
+openai
