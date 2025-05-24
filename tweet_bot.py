@@ -10,11 +10,9 @@ import re
 import time
 from langdetect import detect
 
-# nltk niet meer nodig
 from nltk.corpus import stopwords
 from nltk import download
 
-# Stopwoorden ophalen
 try:
     download('stopwords')
 except:
@@ -22,7 +20,6 @@ except:
 
 EN_STOPWORDS = set(stopwords.words('english'))
 
-# Twitter API v2 authenticatie via Tweepy Client
 def authenticate_v2():
     client = tweepy.Client(
         consumer_key=os.getenv("TWITTER_API_KEY"),
@@ -32,13 +29,10 @@ def authenticate_v2():
     )
     return client
 
-# Werelddeel RSS-feeds
 RSS_FEEDS = {
     "Europa": [
-        "https://www.nrc.nl/rss/",
         "https://www.bbc.co.uk/news/world/europe/rss.xml",
         "https://www.spiegel.de/international/index.rss",
-        "https://www.lemonde.fr/rss/une.xml",
         "https://www.rt.com/rss/news"
     ],
     "Azië": [
@@ -49,7 +43,6 @@ RSS_FEEDS = {
         "https://www.scmp.com/rss/91/feed"
     ],
     "Afrika": [
-        "https://allafrica.com/tools/headlines/rdf/latest/headlines.rdf",
         "https://www.news24.com/news24/rss",
         "https://www.aljazeera.com/xml/rss/all.xml",
         "https://www.ghanaweb.com/GhanaHomePage/NewsArchive/rss.xml",
@@ -63,11 +56,11 @@ RSS_FEEDS = {
         "https://globalnews.ca/feed/"
     ],
     "Zuid-Amerika": [
-        "https://www1.folha.uol.com.br/folhaemrss.xml",
-        "https://feeds.elpais.com/mrss-s/pages/ep/site/elpais.com/section/america",
-        "https://www.telesurenglish.net/rss/",
-        "https://www.infobae.com/america/rss.xml",
-        "https://www.lanacion.com.ar/rss-secciones-politica/"
+        "https://www.telesurenglish.net/rss/"
+    ],
+    "Oceanië": [
+        "https://www.abc.net.au/news/feed/51120/rss.xml",
+        "https://www.nzherald.co.nz/rss/"
     ],
     "Fallback": [
         "https://www.reutersagency.com/feed/?best-topics=world&post_type=best",
@@ -75,11 +68,12 @@ RSS_FEEDS = {
         "https://www.abc.net.au/news/feed/51120/rss.xml",
         "https://www.al-monitor.com/rss.xml",
         "https://apnews.com/rss",
-        "https://www.france24.com/en/rss",
         "https://rss.dw.com/rdf/rss-en-all",
         "https://www.nationalgeographic.com/content/natgeo/en_us/index.rss",
-        "https://rss.nos.nl/nosnieuwsalgemeen",
-        "https://www.voanews.com/api/epiqqe$omm"
+        "https://www.voanews.com/api/epiqqe$omm",
+        "https://www.hindustantimes.com/rss/topnews/rssfeed.xml",
+        "https://www.cbc.ca/cmlink/rss-topstories",
+        "https://www.nzherald.co.nz/rss/"
     ]
 }
 
@@ -102,7 +96,7 @@ def translate_to_english(text):
         )
         return response.json()["translatedText"]
     except:
-        return text  # fallback: return original
+        return text
 
 def fetch_recent_articles():
     now = datetime.utcnow()
@@ -137,8 +131,7 @@ def extract_article_text(url):
 
         paragraphs = soup.find_all('p')
         text = ' '.join([p.get_text() for p in paragraphs])
-        text = re.sub(r'\s+', ' ', text)
-        text = text.strip()
+        text = re.sub(r'\s+', ' ', text).strip()
 
         if detect_language(text) != "en":
             text = translate_to_english(text)
@@ -149,28 +142,19 @@ def extract_article_text(url):
         return ""
 
 def detect_common_topic(articles):
-    all_words = []
     article_bodies = {}
 
     for article in articles:
         content = extract_article_text(article["link"])
-        if len(content.split()) < 100:
-            continue  # sla korte of lege artikelen over
+        if detect_language(content) != "en" or len(content.split()) < 75:
+            continue
         article_bodies[article["title"]] = content
-        tokens = re.findall(r'\b\w+\b', content.lower())
-        words = [w for w in tokens if w.isalpha() and w not in EN_STOPWORDS]
-        all_words.extend(words)
 
-    common_words = Counter(all_words).most_common(10)
-    if not common_words:
-        return None, article_bodies
+    if not article_bodies:
+        return None, {}
 
-    for word, _ in common_words:
-        for t, body in article_bodies.items():
-            if word in body.lower():
-                return t, article_bodies
-
-    return None, article_bodies
+    best_title = max(article_bodies.items(), key=lambda x: len(x[1].split()))[0]
+    return best_title, article_bodies
 
 def summarize_text(text, min_length=240, max_length=280):
     sentences = re.split(r'(?<=[.!?]) +', text)
@@ -190,6 +174,9 @@ def generate_clickbait(title):
     return ' '.join(words[:5]) if len(words) > 5 else title
 
 def tweet_article(client, title, summary):
+    if detect_language(summary) != "en":
+        print("⚠️ Samenvatting is niet in het Engels, tweet wordt overgeslagen.")
+        return
     clickbait = generate_clickbait(title)
     tweet = f"{clickbait}\n\n{summary}"
     tweet = tweet.replace('\n', ' ').replace('\r', ' ').strip()
@@ -213,6 +200,8 @@ def main():
         if best_title and best_title in bodies:
             summary = summarize_text(bodies[best_title])
             if 240 <= len(summary) <= 280:
+                if detect_language(summary) != "en":
+                    summary = translate_to_english(summary)
                 tweet_article(client, best_title, summary)
                 return
             else:
