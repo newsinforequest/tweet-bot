@@ -8,7 +8,7 @@ from collections import Counter
 from openai import OpenAI
 
 # ✅ API-sleutels uit environment
-client = OpenAI(api_key=os.getenv("OPENAI_API_KEY"))
+client = OpenAI(api_key=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))
 
 client_twitter = tweepy.Client(
     consumer_key=os.getenv("API_KEY"),
