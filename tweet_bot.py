@@ -67,6 +67,18 @@ RSS_FEEDS = {
         "https://www.telesurenglish.net/rss/",
         "https://www.infobae.com/america/rss.xml",
         "https://www.lanacion.com.ar/rss-secciones-politica/"
+    ],
+    "Fallback": [
+        "https://www.reutersagency.com/feed/?best-topics=world&post_type=best",
+        "https://www.dw.com/en/top-stories/s-9097?maca=en-rss-en-all-1573-rdf",
+        "https://www.abc.net.au/news/feed/51120/rss.xml",
+        "https://www.al-monitor.com/rss.xml",
+        "https://apnews.com/rss",
+        "https://www.france24.com/en/rss",
+        "https://rss.dw.com/rdf/rss-en-all",
+        "https://www.nationalgeographic.com/content/natgeo/en_us/index.rss",
+        "https://rss.nos.nl/nosnieuwsalgemeen",
+        "https://www.voanews.com/api/epiqqe$omm"
     ]
 }
 
@@ -133,15 +145,16 @@ def detect_common_topic(articles):
 
     return None, article_bodies
 
-def summarize_text(text, length=270):
+def summarize_text(text, min_length=240, max_length=280):
     sentences = re.split(r'(?<=[.!?]) +', text)
-    summary = ''
-    for s in sentences:
-        if len(summary) + len(s) <= length:
-            summary += ' ' + s
-        else:
-            break
-    return summary.strip()[:280]
+    for i in range(len(sentences)):
+        for j in range(i+1, len(sentences)+1):
+            trial = ' '.join(sentences[i:j]).strip()
+            if min_length <= len(trial) <= max_length:
+                return trial
+            if len(trial) > max_length:
+                break
+    return ''
 
 def generate_clickbait(title):
     words = title.split()
@@ -166,15 +179,19 @@ def main():
         print("❌ Geen artikelen gevonden.")
         return
 
-    best_title, bodies = detect_common_topic(articles)
-    if best_title and best_title in bodies:
-        summary = summarize_text(bodies[best_title])
-        if len(summary) < 100:
-            print("❌ Samenvatting te kort, tweet wordt overgeslagen.")
-            return
-        tweet_article(client, best_title, summary)
-    else:
-        print("❌ Geen geschikt artikel gevonden.")
+    while articles:
+        best_title, bodies = detect_common_topic(articles)
+        if best_title and best_title in bodies:
+            summary = summarize_text(bodies[best_title])
+            if 240 <= len(summary) <= 280:
+                tweet_article(client, best_title, summary)
+                return
+            else:
+                articles = [a for a in articles if a["title"] != best_title]
+        else:
+            break
+
+    print("❌ Geen geschikt artikel gevonden met voldoende lengte.")
 
 if __name__ == "__main__":
     main()
