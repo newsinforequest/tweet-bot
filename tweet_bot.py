@@ -1,107 +1,112 @@
-
-import os
-import tweepy
-import time
 import feedparser
+import time
+import random
+import tweepy
 from datetime import datetime, timedelta
 
-# Twitter API keys from environment
-API_KEY = os.getenv("TWITTER_API_KEY")
-API_SECRET = os.getenv("TWITTER_API_SECRET")
-ACCESS_TOKEN = os.getenv("TWITTER_ACCESS_TOKEN")
-ACCESS_SECRET = os.getenv("TWITTER_ACCESS_SECRET")
+# =========================
+# Twitter API authenticatie
+# =========================
+CONSUMER_KEY = 'YOUR_CONSUMER_KEY'
+CONSUMER_SECRET = 'YOUR_CONSUMER_SECRET'
+ACCESS_TOKEN = 'YOUR_ACCESS_TOKEN'
+ACCESS_TOKEN_SECRET = 'YOUR_ACCESS_TOKEN_SECRET'
 
-auth = tweepy.OAuth1UserHandler(API_KEY, API_SECRET, ACCESS_TOKEN, ACCESS_SECRET)
+auth = tweepy.OAuth1UserHandler(CONSUMER_KEY, CONSUMER_SECRET, ACCESS_TOKEN, ACCESS_TOKEN_SECRET)
 api = tweepy.API(auth)
 
-# RSS feeds per continent (at least 5 per)
+# ====================
+# RSS-feeds per regio
+# ====================
 rss_feeds = {
-    "europe": [
+    'europe': [
         "http://feeds.bbci.co.uk/news/world/europe/rss.xml",
-        "https://www.rtbf.be/info/rss/monde.xml",
-        "https://www.derstandard.at/rss",
-        "https://www.lemonde.fr/rss/une.xml",
-        "https://www.spiegel.de/international/index.rss"
+        "https://www.thelocal.de/feeds/rss.php",
+        "https://www.euractiv.com/section/politics/feed/",
+        "https://www.politico.eu/feed/",
+        "https://www.rt.com/rss/news/"
     ],
-    "asia": [
-        "https://www.scmp.com/rss/91/feed",
-        "https://www.japantimes.co.jp/feed/",
-        "https://timesofindia.indiatimes.com/rssfeeds/-2128936835.cms",
+    'asia': [
         "https://www.aljazeera.com/xml/rss/all.xml",
-        "https://www.chinadaily.com.cn/rss/china_rss.xml"
+        "https://timesofindia.indiatimes.com/rssfeeds/-2128936835.cms",
+        "https://japantoday.com/category/national/rss",
+        "https://www.koreatimes.co.kr/www/rss/nation.xml",
+        "https://www.straitstimes.com/news/asia/rss.xml"
     ],
-    "africa": [
+    'africa': [
+        "https://www.aljazeera.com/xml/rss/all.xml?region=africa",
         "https://allafrica.com/tools/headlines/rdf/latest/headlines.rdf",
+        "https://ewn.co.za/RSSFeed",
         "https://www.bbc.co.uk/news/world/africa/rss.xml",
-        "https://ewn.co.za/RSS",
-        "https://www.theeastafrican.co.ke/feeds/2543720-2543720-format-rss-6rjdh0z/index.xml",
-        "https://www.voaafrica.com/api/zrripe_vqopi"
+        "https://mg.co.za/feed/"
     ],
-    "north_america": [
-        "http://rss.cnn.com/rss/edition_us.rss",
+    'north_america': [
         "https://rss.nytimes.com/services/xml/rss/nyt/World.xml",
-        "https://feeds.foxnews.com/foxnews/latest",
-        "https://www.npr.org/rss/rss.php?id=1004",
-        "https://www.cbc.ca/cmlink/rss-world"
+        "http://feeds.foxnews.com/foxnews/latest",
+        "https://www.cbc.ca/cmlink/rss-world",
+        "https://www.npr.org/rss/rss.php?id=1001",
+        "https://rss.cnn.com/rss/edition_world.rss"
     ],
-    "south_america": [
-        "https://www.batimes.com.ar/rss",
-        "https://feeds.elpais.com/mrss-s/pages/ep/site/elpais.com/section/america/portada",
-        "https://www.nodal.am/feed/",
-        "https://www1.folha.uol.com.br/mercado/rss091.xml",
-        "https://www.americasquarterly.org/feed/"
+    'south_america': [
+        "https://www.batimes.com.ar/rss/feed.xml",
+        "https://www.brazilian.report/feed/",
+        "https://rioonwatch.org/?feed=rss2",
+        "https://www.americasquarterly.org/feed/",
+        "https://english.elpais.com/rss/"
     ]
 }
 
+# ================
+# Artikelen ophalen
+# ================
 def fetch_articles():
-    recent_articles = []
-    one_hour_ago = datetime.utcnow() - timedelta(hours=1)
+    articles = []
+    now = datetime.utcnow()
+    one_hour_ago = now - timedelta(hours=1)
 
-    for continent, feeds in rss_feeds.items():
+    for region, feeds in rss_feeds.items():
         for feed_url in feeds:
             feed = feedparser.parse(feed_url)
             for entry in feed.entries:
-                pub_time = datetime(*entry.published_parsed[:6])
-                if pub_time > one_hour_ago:
-                    recent_articles.append((continent, entry.title, entry.summary))
+                if hasattr(entry, 'published_parsed') and entry.published_parsed:
+                    pub_time = datetime(*entry.published_parsed[:6])
+                    if pub_time > one_hour_ago:
+                        articles.append({
+                            'title': entry.title,
+                            'summary': entry.get('summary', ''),
+                            'region': region,
+                            'time': pub_time
+                        })
+    return articles
 
-    return recent_articles
+# ===========================
+# Trending onderwerp bepalen
+# ===========================
+def select_trending_topic(articles, previous_topic=None):
+    from collections import Counter
+    topic_counter = Counter([a['title'] for a in articles])
+    common_topics = topic_counter.most_common()
 
-def choose_article(articles, last_tweet_topic):
-    # Filter articles present in multiple continents
-    topic_count = {}
-    for c, title, summary in articles:
-        topic = title.lower().split(":")[0]
-        if topic not in topic_count:
-            topic_count[topic] = set()
-        topic_count[topic].add(c)
+    if not common_topics:
+        return random.choice(articles)
 
-    ranked = sorted(topic_count.items(), key=lambda x: (-len(x[1]), x[0] != last_tweet_topic))
-    return ranked[0][0] if ranked else None
+    for topic, count in common_topics:
+        if count >= 2:
+            candidates = [a for a in articles if a['title'] == topic]
+            return random.choice(candidates)
 
-def create_tweet(topic):
-    title = f"{topic.title()} Shocks World"
-    body = f"{title}: A global development reported widely across regions. Stay tuned. #news"
-    return body[:279]  # Ensure tweet fits
+    # fallback naar trending artikel
+    fallback = common_topics[0][0]
+    return random.choice([a for a in articles if a['title'] == fallback])
 
-def main():
-    print("✅ Nieuwsartikel ophalen...")
-    articles = fetch_articles()
-    if not articles:
-        raise Exception("Geen geschikte artikelen gevonden")
+# ====================
+# Tweet opstellen
+# ====================
+def generate_tweet(article):
+    title = article['title'].strip().split(' - ')[0]
+    title_words = title.split()
+    clickbait_title = ' '.join(title_words[:5])
 
-    last_tweet_topic = os.getenv("LAST_TWEET_TOPIC", "")
-    topic = choose_article(articles, last_tweet_topic)
-    if not topic:
-        raise Exception("Geen geschikt onderwerp gevonden")
-
-    tweet_text = create_tweet(topic)
-    try:
-        print(f"📣 Tweet wordt geplaatst: {tweet_text}")
-        api.update_status(tweet_text)
-        print("✅ Tweet succesvol geplaatst!")
-    except Exception as e:
-        print(f"❌ Fout bij het plaatsen van de tweet: {e}")
-
-if __name__ == "__main__":
-    main()
+    summary = article['summary']
+    tweet = f"{clickbait_title} — {summary}"
+    tweet = tweet.replace('\n', ' ').replace('\r',
