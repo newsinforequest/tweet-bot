@@ -13,7 +13,7 @@ import time
 nltk.download('punkt')
 nltk.download('stopwords')
 from nltk.corpus import stopwords
-from nltk.tokenize import word_tokenize
+# from nltk.tokenize import word_tokenize
 
 EN_STOPWORDS = set(stopwords.words('english'))
 
@@ -114,7 +114,7 @@ def detect_common_topic(articles):
         content = extract_article_text(article["link"])
         article_bodies[article["title"]] = content
 
-        tokens = word_tokenize(content.lower())
+        tokens = re.findall(r'\b\w+\b', content.lower())
         words = [w for w in tokens if w.isalpha() and w not in EN_STOPWORDS]
         all_words.extend(words)
 
