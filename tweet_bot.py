@@ -5,15 +5,19 @@ import tweepy
 import os
 import requests
 from bs4 import BeautifulSoup
-import nltk
 from collections import Counter
 import re
 import time
 
-nltk.download('punkt')
-nltk.download('stopwords')
+# nltk niet meer nodig
 from nltk.corpus import stopwords
-# from nltk.tokenize import word_tokenize
+from nltk import download
+
+# Stopwoorden ophalen
+try:
+    download('stopwords')
+except:
+    pass
 
 EN_STOPWORDS = set(stopwords.words('english'))
 
@@ -127,7 +131,7 @@ def detect_common_topic(articles):
     return matching_article, article_bodies
 
 def summarize_text(text, length=270):
-    sentences = nltk.sent_tokenize(text)
+    sentences = re.split(r'(?<=[.!?]) +', text)
     summary = ''
     for s in sentences:
         if len(summary) + len(s) <= length:
