@@ -156,22 +156,23 @@ def detect_common_topic(articles):
     best_title = max(article_bodies.items(), key=lambda x: len(x[1].split()))[0]
     return best_title, article_bodies
 
-def summarize_text(text, min_length=240, max_length=280):
+def rewrite_text(text, min_length=240, max_length=280):
     sentences = re.split(r'(?<=[.!?]) +', text)
     for start in range(len(sentences)):
-        summary = ''
+        rewritten = ''
         for end in range(start + 1, len(sentences) + 1):
             trial = ' '.join(sentences[start:end]).strip()
             if len(trial) > max_length:
                 break
-            summary = trial
-        if min_length <= len(summary) <= max_length:
-            return summary
+            rewritten = trial
+        if min_length <= len(rewritten) <= max_length:
+            return rewritten
     return ''
 
 def generate_clickbait(title):
     words = title.split()
-    return ' '.join(words[:5]) if len(words) > 5 else title
+    clickbait = ' '.join(words[:5]) if len(words) > 5 else title
+    return clickbait.upper()
 
 def tweet_article(client, title, summary):
     if detect_language(summary) != "en":
@@ -198,11 +199,11 @@ def main():
     while articles:
         best_title, bodies = detect_common_topic(articles)
         if best_title and best_title in bodies:
-            summary = summarize_text(bodies[best_title])
-            if 240 <= len(summary) <= 280:
-                if detect_language(summary) != "en":
-                    summary = translate_to_english(summary)
-                tweet_article(client, best_title, summary)
+            rewritten = rewrite_text(bodies[best_title])
+            if 240 <= len(rewritten) <= 280:
+                if detect_language(rewritten) != "en":
+                    rewritten = translate_to_english(rewritten)
+                tweet_article(client, best_title, rewritten)
                 return
             else:
                 articles = [a for a in articles if a["title"] != best_title]
