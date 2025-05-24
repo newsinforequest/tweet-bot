@@ -110,8 +110,19 @@ def tweet_article(api, text):
         print(f"⚠️ Tweet mislukt: {e}")
 
 def authenticate():
+    print("🔐 AUTH DEBUG INFO:")
+    print(f"API_KEY set: {bool(API_KEY)}")
+    print(f"API_SECRET set: {bool(API_SECRET)}")
+    print(f"ACCESS_TOKEN set: {bool(ACCESS_TOKEN)}")
+    print(f"ACCESS_TOKEN_SECRET set: {bool(ACCESS_TOKEN_SECRET)}")
     auth = tweepy.OAuth1UserHandler(API_KEY, API_SECRET, ACCESS_TOKEN, ACCESS_TOKEN_SECRET)
-    return tweepy.API(auth)
+    api = tweepy.API(auth)
+    try:
+        api.verify_credentials()
+        print("✅ Authenticated with Twitter.")
+    except Exception as e:
+        print(f"❌ Auth failed: {e}")
+    return api
 
 def main():
     api = authenticate()
