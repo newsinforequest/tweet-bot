@@ -8,7 +8,7 @@ from collections import Counter
 from openai import OpenAI
 
 # ✅ API-sleutels uit environment
-client = OpenAI(api_key=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))
+client = OpenAI(api_key="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")
 
 client_twitter = tweepy.Client(
     consumer_key=os.getenv("API_KEY"),
@@ -52,7 +52,7 @@ FEEDS = {
         "https://feeds.elpais.com/mrss-s/pages/ep/site/elpais.com/section/america",
         "https://www.telesurenglish.net/rss/",
         "https://www.infobae.com/america/rss.xml",
-        "https://www.lanacion.com.ar/rss-secciones-politica/"
+        "https://www.lanacion.com.ar/rss-secties-politica/"
     ]
 }
 
@@ -113,103 +113,4 @@ def summarize_to_exact_length(text, min_len=260, max_len=280, max_attempts=5):
             return summary
         else:
             print(f"⏳ Poging {attempt + 1}: Samenvatting is {length} tekens lang, opnieuw proberen...")
-            sleep(1)
-
-    print("⚠️ Samenvatting niet binnen limiet, laatste versie gebruiken.")
-    return summary
-
-# 🎯 Clickbait-titel van 1–5 woorden
-def generate_clickbait(title):
-    prompt = f"Write a short, clickbait-style headline (1–5 words) based on the following news title:\n\n{title}"
-    response = client.chat.completions.create(
-        model="gpt-4",
-        messages=[{"role": "user", "content": prompt}],
-        temperature=0.9,
-        max_tokens=10
-    )
-    return response.choices[0].message.content.strip()
-
-# 📰 Artikelen verzamelen per feed
-def gather_articles(feeds):
-    articles = []
-    for continent, urls in feeds.items():
-        for url in urls:
-            try:
-                feed = feedparser.parse(url)
-            except Exception as e:
-                print(f"⚠️ Fout bij feed {url}: {e}")
-                continue
-            for entry in feed.entries:
-                if not is_recent(entry):
-                    continue
-                summary = entry.summary if hasattr(entry, 'summary') else entry.title
-                articles.append({
-                    "continent": continent,
-                    "title": entry.title,
-                    "summary": summary,
-                    "link": entry.link
-                })
-    return articles
-
-# 🌐 Voorkeur 1 en 2 selectie
-
-def select_preferred_article(articles):
-    title_map = {}
-    continent_map = {}
-    freq_counter = Counter()
-
-    for article in articles:
-        title = article["title"]
-        freq_counter[title] += 1
-        title_map.setdefault(title, []).append(article)
-        continent_map.setdefault(title, set()).add(article["continent"])
-
-    # Alle titels gesorteerd op frequentie
-    all_titles = sorted(freq_counter.keys(), key=lambda t: (freq_counter[t], len(continent_map[t])), reverse=True)
-
-    if all_titles:
-        return title_map[all_titles[0]][0]
-    return None
-
-# 🐦 Tweet maken en posten
-def tweet_article(article):
-    clickbait = generate_clickbait(article["title"])
-    summary = summarize_to_exact_length(article["summary"])
-    tweet = f"{clickbait}: {summary} {article['link']}"
-
-    if len(tweet) > 280:
-        excess = len(tweet) - 280
-        clickbait = clickbait[:-excess - 1]  # -1 voor de dubbele punt
-        tweet = f"{clickbait}: {summary} {article['link']}"
-
-    try:
-        response = client_twitter.create_tweet(text=tweet)
-        print(f"✅ Tweet geplaatst: {tweet}")
-    except Exception as e:
-        print(f"⚠️ Tweet mislukt: {e}")
-
-# 🤖 Hoofdfunctie
-def run_bot():
-    print("🔎 Nieuws ophalen...")
-    articles = gather_articles(FEEDS)
-
-    article = select_preferred_article(articles)
-
-    if not article:
-        print("⚠️ Geen geschikt onderwerp gevonden, gebruik fallback feeds.")
-        fallback_feed_map = {"Fallback": FALLBACK_FEEDS}
-        fallback_articles = gather_articles(fallback_feed_map)
-        article = select_preferred_article(fallback_articles)
-
-    if not article:
-        print("⚠️ Nog steeds geen artikel gevonden, gebruik thema fallback.")
-        theme_articles = gather_articles(THEME_FEEDS)
-        article = select_preferred_article(theme_articles)
-
-    if article:
-        tweet_article(article)
-    else:
-        print("🚫 Geen geschikt artikel gevonden, zelfs niet in thema-feeds.")
-
-if __name__ == "__main__":
-    run_bot()
+            sle
