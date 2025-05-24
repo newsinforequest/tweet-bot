@@ -3,29 +3,25 @@ import random
 from datetime import datetime, timedelta
 import tweepy
 import os
-import requests
-from bs4 import BeautifulSoup
 
-# Twitter API authenticatie
+# Twitter API v2 authenticatie via Tweepy Client
 def authenticate_v2():
-    return tweepy.Client(
+    client = tweepy.Client(
         consumer_key=os.getenv("TWITTER_API_KEY"),
         consumer_secret=os.getenv("TWITTER_API_SECRET"),
         access_token=os.getenv("TWITTER_ACCESS_TOKEN"),
         access_token_secret=os.getenv("TWITTER_ACCESS_SECRET")
     )
+    
+    print("🔐 AUTH DEBUG INFO:")
+    print("API_KEY set:", bool(os.getenv("TWITTER_API_KEY")))
+    print("API_SECRET set:", bool(os.getenv("TWITTER_API_SECRET")))
+    print("ACCESS_TOKEN set:", bool(os.getenv("TWITTER_ACCESS_TOKEN")))
+    print("ACCESS_TOKEN_SECRET set:", bool(os.getenv("TWITTER_ACCESS_SECRET")))
+    
+    return client
 
-def authenticate_v1():
-    return tweepy.API(
-        tweepy.OAuth1UserHandler(
-            os.getenv("TWITTER_API_KEY"),
-            os.getenv("TWITTER_API_SECRET"),
-            os.getenv("TWITTER_ACCESS_TOKEN"),
-            os.getenv("TWITTER_ACCESS_SECRET")
-        )
-    )
-
-# RSS-feeds per continent (5 per continent)
+# Werelddeel RSS-feeds
 RSS_FEEDS = {
     "Europa": [
         "https://www.nrc.nl/rss/",
@@ -35,11 +31,11 @@ RSS_FEEDS = {
         "https://www.rt.com/rss/news"
     ],
     "Azië": [
+        "https://timesofindia.indiatimes.com/rss.cms",
         "https://english.kyodonews.net/rss/news.xml",
         "https://www.japantimes.co.jp/feed/",
         "https://www.channelnewsasia.com/rssfeeds/8395986",
-        "https://www.scmp.com/rss/91/feed",
-        "https://www.koreatimes.co.kr/www/rss/rss.xml"
+        "https://www.scmp.com/rss/91/feed"
     ],
     "Afrika": [
         "https://allafrica.com/tools/headlines/rdf/latest/headlines.rdf",
@@ -64,97 +60,74 @@ RSS_FEEDS = {
     ]
 }
 
-# HTML opschonen
-def clean_html(raw_html):
-    return BeautifulSoup(raw_html, "html.parser").get_text()
-
-# Artikelen ophalen en filteren
 def fetch_articles():
+    print("✅ Nieuwsartikel ophalen...")
     now = datetime.utcnow()
-    cutoff = now - timedelta(hours=1)
-    articles = {}
+    one_hour_ago = now - timedelta(hours=1)
+    seen_titles = {}
 
-    for region, feeds in RSS_FEEDS.items():
-        for feed in feeds:
+    for continent, feeds in RSS_FEEDS.items():
+        for feed_url in feeds:
             try:
-                parsed = feedparser.parse(feed)
-                for entry in parsed.entries:
+                feed = feedparser.parse(feed_url)
+                for entry in feed.entries:
                     try:
-                        pub = datetime(*entry.published_parsed[:6])
-                    except:
+                        pub_time = datetime(*entry.published_parsed[:6])
+                    except (AttributeError, TypeError):
                         continue
-                    if pub < cutoff:
-                        continue
-                    title = entry.title.strip()
-                    link = entry.link
-                    summary = clean_html(entry.summary if 'summary' in entry else "")
-                    if len(summary) >= 400:
-                        if title not in articles:
-                            articles[title] = {"summary": summary, "link": link, "regions": set(), "image": None}
-                        articles[title]["regions"].add(region)
-                        if 'media_content' in entry:
-                            articles[title]["image"] = entry.media_content[0].get('url', None)
-            except Exception:
-                continue
-    return articles
 
-# Selecteer artikel met voorkeuren
-def select_article(articles):
-    high_priority = [a for a in articles.items() if len(a[1]["regions"]) >= 2]
-    multi_source = [a for a in articles.items() if len(a[1]["regions"]) == 1]
-    if high_priority:
-        return random.choice(high_priority)
-    elif multi_source:
-        return random.choice(multi_source)
+                    if pub_time >= one_hour_ago:
+                        title = entry.title.strip()
+                        if title not in seen_titles:
+                            seen_titles[title] = set()
+                        seen_titles[title].add(continent)
+            except Exception as e:
+                print(f"⚠️ Fout bij verwerken van feed: {feed_url} - {e}")
+
+    return seen_titles
+
+def generate_clickbait(title):
+    words = title.split()
+    if len(words) <= 5:
+        return title
+    return ' '.join(words[:5]) + "..."
+
+def select_article(articles, last_tweet=""):
+    candidates = [title for title, continents in articles.items() if len(continents) >= 2]
+    if candidates:
+        selected = random.choice(candidates)
     elif articles:
-        return sorted(articles.items(), key=lambda x: len(x[1]["summary"]), reverse=True)[0]
+        sorted_articles = sorted(articles.items(), key=lambda item: len(item[1]), reverse=True)
+        top_titles = [t for t, v in sorted_articles if len(v) == len(sorted_articles[0][1])]
+        if last_tweet:
+            top_titles = sorted(top_titles, key=lambda t: overlap(t, last_tweet))
+        selected = top_titles[0]
     else:
         return None
+    return selected
 
-# Clickbait titel (1–5 woorden)
-def generate_title(text):
-    words = text.strip().split()
-    return " ".join(words[:random.randint(1, min(5, len(words)))])
+def overlap(a, b):
+    return len(set(a.lower().split()) & set(b.lower().split()))
 
-# Samenvatting → tweet
-def summarize_to_tweet(summary, max_len=280, min_len=270):
-    text = clean_html(summary).replace("\n", " ").strip()
-    if len(text) > max_len:
-        return text[:max_len - 1] + "…"
-    elif len(text) < min_len:
-        return text + ("." * (min_len - len(text)))
-    return text
-
-# Tweet publiceren met afbeelding (media upload via v1.1)
-def tweet_article(client_v2, client_v1, title, summary, image_url=None):
-    tweet_title = generate_title(title)
-    tweet_body = summarize_to_tweet(summary)
-    full_text = f"{tweet_title.upper()}\n\n{tweet_body}"
+def tweet_article(client, text):
+    tweet = generate_clickbait(text).replace('\n', ' ').replace('\r', '')
     try:
-        if image_url:
-            filename = "temp.jpg"
-            with open(filename, 'wb') as f:
-                f.write(requests.get(image_url).content)
-            media = client_v1.media_upload(filename)
-            response = client_v2.create_tweet(text=full_text, media_ids=[media.media_id])
-            os.remove(filename)
-        else:
-            response = client_v2.create_tweet(text=full_text)
-        print("✅ Tweet geplaatst:", response.data["id"])
+        response = client.create_tweet(text=tweet)
+        print(f"✅ Tweet geplaatst: {tweet} (ID: {response.data['id']})")
     except Exception as e:
-        print("❌ Fout bij tweet:", e)
+        print(f"⚠️ Tweet mislukt: {e}")
 
-# Main
 def main():
-    client_v2 = authenticate_v2()
-    client_v1 = authenticate_v1()
+    client = authenticate_v2()
     articles = fetch_articles()
-    selection = select_article(articles)
-    if selection:
-        title, data = selection
-        tweet_article(client_v2, client_v1, title, data["summary"], data["image"])
+    if not articles:
+        print("❌ Geen recente artikelen gevonden.")
+        return
+    selected_title = select_article(articles)
+    if selected_title:
+        tweet_article(client, selected_title)
     else:
-        print("❌ Geen geschikt artikel gevonden.")
+        print("❌ Geen geschikte tweet gevonden.")
 
 if __name__ == "__main__":
     main()
