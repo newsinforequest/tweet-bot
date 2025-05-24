@@ -56,38 +56,17 @@ FEEDS = {
     ]
 }
 
-# 🆘 Fallback-feeds (voorbeeld: vul aan tot 100)
+# 🆘 Fallback-feeds (gevalideerd)
 FALLBACK_FEEDS = [
     "https://rss.cnn.com/rss/cnn_topstories.rss",
     "https://feeds.bbci.co.uk/news/rss.xml",
     "https://rss.nytimes.com/services/xml/rss/nyt/HomePage.xml",
     "https://www.aljazeera.com/xml/rss/all.xml",
     "https://feeds.foxnews.com/foxnews/latest",
-    "https://www.reutersagency.com/feed/?best-topics=top-news&post_type=best",
-    "https://www.washingtonpost.com/rss/",
-    "https://www.nbcnews.com/id/3032091/device/rss/rss.xml",
-    "https://www.cbsnews.com/latest/rss/main",
-    "https://abcnews.go.com/abcnews/topstories",
-    "https://www.reuters.com/tools/rss",
-    "https://www.economist.com/the-world-this-week/rss.xml",
     "https://www.dw.com/en/top-stories/s-9097/rss",
-    "https://www.apnews.com/rss",
-    "https://www.bloomberg.com/feed/podcast/taking-stock.xml",
-    "https://www.aljazeera.com/xml/rss/all.xml",
-    "https://www.cnbc.com/id/100003114/device/rss/rss.html",
-    "https://globalvoices.org/-/world/feed/",
-    "https://feeds.bbci.co.uk/news/world/rss.xml",
-    "https://www.theguardian.com/uk/rss",
-    "https://www.telegraph.co.uk/news/rss.xml",
-    "https://rss.itv.com/news",
-    "https://www.independent.co.uk/news/uk/rss",
     "https://globalnews.ca/feed/",
-    "https://www.ctvnews.ca/rss/ctvnews-ca-top-stories-public-rss-1.822009",
-    "https://www.cbc.ca/cmlink/rss-topstories",
-    "https://www.smh.com.au/rss/feed.xml",
-    "https://www.abc.net.au/news/feed/51120/rss.xml",
-    "https://www.news.com.au/feed",
-  ]
+    "https://www.cbc.ca/cmlink/rss-topstories"
+]
 
 # 🧠 Thema fallback-feeds (evergreen topics)
 THEME_FEEDS = {
@@ -146,7 +125,11 @@ def gather_articles(feeds):
     articles = []
     for continent, urls in feeds.items():
         for url in urls:
-            feed = feedparser.parse(url)
+            try:
+                feed = feedparser.parse(url)
+            except Exception as e:
+                print(f"⚠️ Fout bij feed {url}: {e}")
+                continue
             for entry in feed.entries:
                 if is_recent(entry):
                     summary = entry.summary if hasattr(entry, 'summary') else entry.title
