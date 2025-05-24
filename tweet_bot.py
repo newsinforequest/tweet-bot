@@ -8,6 +8,7 @@ from bs4 import BeautifulSoup
 from collections import Counter
 import re
 import time
+from langdetect import detect
 
 # nltk niet meer nodig
 from nltk.corpus import stopwords
@@ -82,6 +83,27 @@ RSS_FEEDS = {
     ]
 }
 
+def detect_language(text):
+    try:
+        return detect(text)
+    except:
+        return "unknown"
+
+def translate_to_english(text):
+    try:
+        response = requests.post(
+            "https://libretranslate.de/translate",
+            data={
+                "q": text,
+                "source": "auto",
+                "target": "en",
+                "format": "text"
+            }
+        )
+        return response.json()["translatedText"]
+    except:
+        return text  # fallback: return original
+
 def fetch_recent_articles():
     now = datetime.utcnow()
     one_hour_ago = now - timedelta(hours=1)
@@ -116,9 +138,14 @@ def extract_article_text(url):
         paragraphs = soup.find_all('p')
         text = ' '.join([p.get_text() for p in paragraphs])
         text = re.sub(r'\s+', ' ', text)
-        return text.strip()
+        text = text.strip()
+
+        if detect_language(text) != "en":
+            text = translate_to_english(text)
+
+        return text
     except Exception as e:
-        print(f"⚠️ Kan artikel niet openen: {url} - {e}")
+        print(f"⚠️ Kan artikel niet openen of vertalen: {url} - {e}")
         return ""
 
 def detect_common_topic(articles):
@@ -147,13 +174,15 @@ def detect_common_topic(articles):
 
 def summarize_text(text, min_length=240, max_length=280):
     sentences = re.split(r'(?<=[.!?]) +', text)
-    for i in range(len(sentences)):
-        for j in range(i+1, len(sentences)+1):
-            trial = ' '.join(sentences[i:j]).strip()
-            if min_length <= len(trial) <= max_length:
-                return trial
+    for start in range(len(sentences)):
+        summary = ''
+        for end in range(start + 1, len(sentences) + 1):
+            trial = ' '.join(sentences[start:end]).strip()
             if len(trial) > max_length:
                 break
+            summary = trial
+        if min_length <= len(summary) <= max_length:
+            return summary
     return ''
 
 def generate_clickbait(title):
