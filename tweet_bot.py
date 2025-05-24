@@ -3,25 +3,16 @@ import random
 from datetime import datetime, timedelta
 import tweepy
 import os
+import openai
 
-# Twitter API v2 authenticatie via Tweepy Client
-def authenticate_v2():
-    client = tweepy.Client(
-        consumer_key=os.getenv("TWITTER_API_KEY"),
-        consumer_secret=os.getenv("TWITTER_API_SECRET"),
-        access_token=os.getenv("TWITTER_ACCESS_TOKEN"),
-        access_token_secret=os.getenv("TWITTER_ACCESS_SECRET")
-    )
-    
-    print("🔐 AUTH DEBUG INFO:")
-    print("API_KEY set:", bool(os.getenv("TWITTER_API_KEY")))
-    print("API_SECRET set:", bool(os.getenv("TWITTER_API_SECRET")))
-    print("ACCESS_TOKEN set:", bool(os.getenv("TWITTER_ACCESS_TOKEN")))
-    print("ACCESS_TOKEN_SECRET set:", bool(os.getenv("TWITTER_ACCESS_SECRET")))
-    
-    return client
+# Secrets uit GitHub Actions
+API_KEY = os.getenv("TWITTER_API_KEY")
+API_SECRET = os.getenv("TWITTER_API_SECRET")
+ACCESS_TOKEN = os.getenv("TWITTER_ACCESS_TOKEN")
+ACCESS_TOKEN_SECRET = os.getenv("TWITTER_ACCESS_SECRET")
+OPENAI_API_KEY = os.getenv("OPENAI_API_KEY")
+openai.api_key = OPENAI_API_KEY
 
-# Werelddeel RSS-feeds
 RSS_FEEDS = {
     "Europa": [
         "https://www.nrc.nl/rss/",
@@ -65,7 +56,7 @@ def fetch_articles():
     now = datetime.utcnow()
     one_hour_ago = now - timedelta(hours=1)
     seen_titles = {}
-
+    
     for continent, feeds in RSS_FEEDS.items():
         for feed_url in feeds:
             try:
@@ -75,7 +66,6 @@ def fetch_articles():
                         pub_time = datetime(*entry.published_parsed[:6])
                     except (AttributeError, TypeError):
                         continue
-
                     if pub_time >= one_hour_ago:
                         title = entry.title.strip()
                         if title not in seen_titles:
@@ -83,49 +73,77 @@ def fetch_articles():
                         seen_titles[title].add(continent)
             except Exception as e:
                 print(f"⚠️ Fout bij verwerken van feed: {feed_url} - {e}")
-
+    
     return seen_titles
 
-def generate_clickbait(title):
-    words = title.split()
-    if len(words) <= 5:
-        return title
-    return ' '.join(words[:5]) + "..."
+def translate_to_english(text):
+    try:
+        prompt = f"Translate the following headline to English and expand it into a short tweet between 260 and 280 characters:\n\n\"{text}\"\n\nOnly return the tweet text."
+        response = openai.ChatCompletion.create(
+            model="gpt-3.5-turbo",
+            messages=[{"role": "user", "content": prompt}],
+            max_tokens=300,
+            temperature=0.7,
+        )
+        tweet = response.choices[0].message['content'].strip()
+        return tweet
+    except Exception as e:
+        print(f"⚠️ Fout bij vertalen: {e}")
+        return None
 
 def select_article(articles, last_tweet=""):
     candidates = [title for title, continents in articles.items() if len(continents) >= 2]
     if candidates:
-        selected = random.choice(candidates)
+        return random.choice(candidates)
     elif articles:
         sorted_articles = sorted(articles.items(), key=lambda item: len(item[1]), reverse=True)
         top_titles = [t for t, v in sorted_articles if len(v) == len(sorted_articles[0][1])]
-        if last_tweet:
-            top_titles = sorted(top_titles, key=lambda t: overlap(t, last_tweet))
-        selected = top_titles[0]
-    else:
-        return None
-    return selected
+        return top_titles[0]
+    return None
 
-def overlap(a, b):
-    return len(set(a.lower().split()) & set(b.lower().split()))
-
-def tweet_article(client, text):
-    tweet = generate_clickbait(text).replace('\n', ' ').replace('\r', '')
+def tweet_article(api, text):
+    tweet = translate_to_english(text)
+    if not tweet:
+        print("❌ Geen vertaling beschikbaar.")
+        return
+    tweet = tweet.replace('\n', ' ').replace('\r', '')
+    length = len(tweet)
+    if length < 260 or length > 280:
+        print(f"⚠️ Tweetlengte ongeschikt ({length} tekens), overslaan.")
+        return
     try:
-        response = client.create_tweet(text=tweet)
-        print(f"✅ Tweet geplaatst: {tweet} (ID: {response.data['id']})")
+        api.update_status(tweet)
+        print(f"✅ Tweet geplaatst ({length} tekens): {tweet}")
     except Exception as e:
         print(f"⚠️ Tweet mislukt: {e}")
 
+def authenticate():
+    print("🔐 AUTH DEBUG INFO:")
+    print("API_KEY set:", bool(API_KEY))
+    print("API_SECRET set:", bool(API_SECRET))
+    print("ACCESS_TOKEN set:", bool(ACCESS_TOKEN))
+    print("ACCESS_TOKEN_SECRET set:", bool(ACCESS_TOKEN_SECRET))
+    try:
+        auth = tweepy.OAuth1UserHandler(API_KEY, API_SECRET, ACCESS_TOKEN, ACCESS_TOKEN_SECRET)
+        api = tweepy.API(auth)
+        api.verify_credentials()
+        print("✅ Authenticated with Twitter.")
+        return api
+    except Exception as e:
+        print("❌ Auth failed:", e)
+        return None
+
 def main():
-    client = authenticate_v2()
+    api = authenticate()
+    if not api:
+        return
     articles = fetch_articles()
     if not articles:
-        print("❌ Geen recente artikelen gevonden.")
+        print("❌ Geen artikelen gevonden.")
         return
     selected_title = select_article(articles)
     if selected_title:
-        tweet_article(client, selected_title)
+        tweet_article(api, selected_title)
     else:
         print("❌ Geen geschikte tweet gevonden.")
 
