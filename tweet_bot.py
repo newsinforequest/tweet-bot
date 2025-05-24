@@ -53,9 +53,6 @@ RSS_FEEDS = {
     ]
 }
 
-summarizer = pipeline("summarization")
-translator = pipeline("translation", model="Helsinki-NLP/opus-mt-mul-en")
-
 def authenticate():
     auth = tweepy.OAuth1UserHandler(API_KEY, API_SECRET, ACCESS_TOKEN, ACCESS_TOKEN_SECRET)
     return tweepy.API(auth)
@@ -83,18 +80,15 @@ def fetch_articles():
 
     return seen_titles
 
-def generate_clickbait(title):
-    words = title.split()
-    return ' '.join(words[:5]).upper()
+def summarize_article(text):
+    summarizer = pipeline("summarization", model="facebook/bart-large-cnn")
+    summary = summarizer(text, max_length=130, min_length=80, do_sample=False)[0]['summary_text']
+    return summary
 
-def summarize_and_translate(text):
-    try:
-        summary = summarizer(text, max_length=130, min_length=30, do_sample=False)[0]['summary_text']
-        translation = translator(summary)[0]['translation_text']
-        return translation
-    except Exception as e:
-        print(f"⚠️ Samenvatting/vertaalfout: {e}")
-        return None
+def translate_to_english(text):
+    translator = pipeline("translation", model="Helsinki-NLP/opus-mt-mul-en")
+    translation = translator(text, max_length=200)[0]['translation_text']
+    return translation
 
 def extract_image_url(entry):
     if "media_content" in entry and entry.media_content:
@@ -118,16 +112,15 @@ def download_image(url):
         print(f"⚠️ Download afbeelding mislukt: {e}")
     return None
 
-def tweet_article(api, title, summary, image_url=None):
-    headline = generate_clickbait(title)
-    body = summarize_and_translate(summary)
-    if not body:
-        return
+def generate_clickbait(title):
+    words = title.split()
+    return ' '.join(words[:5]).upper()
 
-    tweet = f"{headline} 🚨\n\n{body}"
-    # Garandeer lengte tussen 265-280 tekens
-    if len(tweet) < 265:
-        tweet += " " + ("🔥" * ((265 - len(tweet)) // 2))
+def tweet_article(api, title, full_text, image_url=None):
+    clickbait = generate_clickbait(title)
+    summary = summarize_article(full_text)
+    english = translate_to_english(summary)
+    tweet = f"{clickbait} 🚨\n\n{english}"
     tweet = tweet[:280]
 
     media_id = None
@@ -156,9 +149,9 @@ def main():
         print("❌ Geen recente artikelen gevonden.")
         return
     title, entry = random.choice(list(articles.items()))
-    summary = entry.summary if 'summary' in entry else ""
+    full_text = entry.summary if 'summary' in entry else entry.title
     image_url = extract_image_url(entry)
-    tweet_article(api, title, summary, image_url)
+    tweet_article(api, title, full_text, image_url)
 
 if __name__ == "__main__":
     main()
