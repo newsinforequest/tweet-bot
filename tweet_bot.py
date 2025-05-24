@@ -16,11 +16,41 @@ api = tweepy.API(auth)
 
 # RSS feeds per continent (at least 5 per)
 rss_feeds = {
-    "europe": [...],  # Replace with actual RSS feed URLs
-    "asia": [...],
-    "africa": [...],
-    "north_america": [...],
-    "south_america": [...]
+    "europe": [
+        "http://feeds.bbci.co.uk/news/world/europe/rss.xml",
+        "https://www.rtbf.be/info/rss/monde.xml",
+        "https://www.derstandard.at/rss",
+        "https://www.lemonde.fr/rss/une.xml",
+        "https://www.spiegel.de/international/index.rss"
+    ],
+    "asia": [
+        "https://www.scmp.com/rss/91/feed",
+        "https://www.japantimes.co.jp/feed/",
+        "https://timesofindia.indiatimes.com/rssfeeds/-2128936835.cms",
+        "https://www.aljazeera.com/xml/rss/all.xml",
+        "https://www.chinadaily.com.cn/rss/china_rss.xml"
+    ],
+    "africa": [
+        "https://allafrica.com/tools/headlines/rdf/latest/headlines.rdf",
+        "https://www.bbc.co.uk/news/world/africa/rss.xml",
+        "https://ewn.co.za/RSS",
+        "https://www.theeastafrican.co.ke/feeds/2543720-2543720-format-rss-6rjdh0z/index.xml",
+        "https://www.voaafrica.com/api/zrripe_vqopi"
+    ],
+    "north_america": [
+        "http://rss.cnn.com/rss/edition_us.rss",
+        "https://rss.nytimes.com/services/xml/rss/nyt/World.xml",
+        "https://feeds.foxnews.com/foxnews/latest",
+        "https://www.npr.org/rss/rss.php?id=1004",
+        "https://www.cbc.ca/cmlink/rss-world"
+    ],
+    "south_america": [
+        "https://www.batimes.com.ar/rss",
+        "https://feeds.elpais.com/mrss-s/pages/ep/site/elpais.com/section/america/portada",
+        "https://www.nodal.am/feed/",
+        "https://www1.folha.uol.com.br/mercado/rss091.xml",
+        "https://www.americasquarterly.org/feed/"
+    ]
 }
 
 def fetch_articles():
