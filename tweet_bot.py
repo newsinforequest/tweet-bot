@@ -87,6 +87,8 @@ FALLBACK_FEEDS = [
     "https://www.smh.com.au/rss/feed.xml",
     "https://www.abc.net.au/news/feed/51120/rss.xml",
     "https://www.news.com.au/feed",
+  ]
+}
 
 # 🧠 Thema fallback-feeds (evergreen topics)
 THEME_FEEDS = {
