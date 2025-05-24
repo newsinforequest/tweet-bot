@@ -1,18 +1,20 @@
-import feedparser
-import random
-from datetime import datetime, timedelta
-import tweepy
 import os
-import openai
+import feedparser
+import tweepy
+import random
+import requests
+import tempfile
+from bs4 import BeautifulSoup
+from datetime import datetime, timedelta
+from transformers import pipeline
 
-# Secrets uit GitHub Actions
+# 🔐 API keys
 API_KEY = os.getenv("TWITTER_API_KEY")
 API_SECRET = os.getenv("TWITTER_API_SECRET")
 ACCESS_TOKEN = os.getenv("TWITTER_ACCESS_TOKEN")
 ACCESS_TOKEN_SECRET = os.getenv("TWITTER_ACCESS_SECRET")
-OPENAI_API_KEY = os.getenv("OPENAI_API_KEY")
-openai.api_key = OPENAI_API_KEY
 
+# 🌍 RSS-feeds per werelddeel
 RSS_FEEDS = {
     "Europa": [
         "https://www.nrc.nl/rss/",
@@ -51,16 +53,22 @@ RSS_FEEDS = {
     ]
 }
 
+summarizer = pipeline("summarization")
+translator = pipeline("translation", model="Helsinki-NLP/opus-mt-mul-en")
+
+def authenticate():
+    auth = tweepy.OAuth1UserHandler(API_KEY, API_SECRET, ACCESS_TOKEN, ACCESS_TOKEN_SECRET)
+    return tweepy.API(auth)
+
 def fetch_articles():
-    print("✅ Nieuwsartikel ophalen...")
     now = datetime.utcnow()
     one_hour_ago = now - timedelta(hours=1)
     seen_titles = {}
-    
-    for continent, feeds in RSS_FEEDS.items():
-        for feed_url in feeds:
+
+    for feeds in RSS_FEEDS.values():
+        for url in feeds:
             try:
-                feed = feedparser.parse(feed_url)
+                feed = feedparser.parse(url)
                 for entry in feed.entries:
                     try:
                         pub_time = datetime(*entry.published_parsed[:6])
@@ -69,83 +77,88 @@ def fetch_articles():
                     if pub_time >= one_hour_ago:
                         title = entry.title.strip()
                         if title not in seen_titles:
-                            seen_titles[title] = set()
-                        seen_titles[title].add(continent)
+                            seen_titles[title] = entry
             except Exception as e:
-                print(f"⚠️ Fout bij verwerken van feed: {feed_url} - {e}")
-    
+                print(f"⚠️ Fout bij {url}: {e}")
+
     return seen_titles
 
-def translate_to_english(text):
+def generate_clickbait(title):
+    words = title.split()
+    return ' '.join(words[:5]).upper()
+
+def summarize_and_translate(text):
     try:
-        prompt = f"Translate the following headline to English and expand it into a short tweet between 260 and 280 characters:\n\n\"{text}\"\n\nOnly return the tweet text."
-        response = openai.ChatCompletion.create(
-            model="gpt-3.5-turbo",
-            messages=[{"role": "user", "content": prompt}],
-            max_tokens=300,
-            temperature=0.7,
-        )
-        tweet = response.choices[0].message['content'].strip()
-        return tweet
+        summary = summarizer(text, max_length=130, min_length=30, do_sample=False)[0]['summary_text']
+        translation = translator(summary)[0]['translation_text']
+        return translation
     except Exception as e:
-        print(f"⚠️ Fout bij vertalen: {e}")
+        print(f"⚠️ Samenvatting/vertaalfout: {e}")
         return None
 
-def select_article(articles, last_tweet=""):
-    candidates = [title for title, continents in articles.items() if len(continents) >= 2]
-    if candidates:
-        return random.choice(candidates)
-    elif articles:
-        sorted_articles = sorted(articles.items(), key=lambda item: len(item[1]), reverse=True)
-        top_titles = [t for t, v in sorted_articles if len(v) == len(sorted_articles[0][1])]
-        return top_titles[0]
+def extract_image_url(entry):
+    if "media_content" in entry and entry.media_content:
+        return entry.media_content[0].get('url')
+    elif "summary" in entry:
+        soup = BeautifulSoup(entry.summary, 'html.parser')
+        img = soup.find('img')
+        if img and img.get('src'):
+            return img['src']
     return None
 
-def tweet_article(api, text):
-    tweet = translate_to_english(text)
-    if not tweet:
-        print("❌ Geen vertaling beschikbaar.")
-        return
-    tweet = tweet.replace('\n', ' ').replace('\r', '')
-    length = len(tweet)
-    if length < 260 or length > 280:
-        print(f"⚠️ Tweetlengte ongeschikt ({length} tekens), overslaan.")
-        return
+def download_image(url):
     try:
-        api.update_status(tweet)
-        print(f"✅ Tweet geplaatst ({length} tekens): {tweet}")
+        response = requests.get(url, timeout=10)
+        if response.status_code == 200:
+            temp = tempfile.NamedTemporaryFile(delete=False, suffix=".jpg")
+            temp.write(response.content)
+            temp.close()
+            return temp.name
     except Exception as e:
-        print(f"⚠️ Tweet mislukt: {e}")
+        print(f"⚠️ Download afbeelding mislukt: {e}")
+    return None
 
-def authenticate():
-    print("🔐 AUTH DEBUG INFO:")
-    print("API_KEY set:", bool(API_KEY))
-    print("API_SECRET set:", bool(API_SECRET))
-    print("ACCESS_TOKEN set:", bool(ACCESS_TOKEN))
-    print("ACCESS_TOKEN_SECRET set:", bool(ACCESS_TOKEN_SECRET))
+def tweet_article(api, title, summary, image_url=None):
+    headline = generate_clickbait(title)
+    body = summarize_and_translate(summary)
+    if not body:
+        return
+
+    tweet = f"{headline} 🚨\n\n{body}"
+    # Garandeer lengte tussen 265-280 tekens
+    if len(tweet) < 265:
+        tweet += " " + ("🔥" * ((265 - len(tweet)) // 2))
+    tweet = tweet[:280]
+
+    media_id = None
+    if image_url:
+        image_path = download_image(image_url)
+        if image_path:
+            try:
+                media = api.media_upload(image_path)
+                media_id = media.media_id
+            except Exception as e:
+                print(f"⚠️ Upload afbeelding mislukt: {e}")
+
     try:
-        auth = tweepy.OAuth1UserHandler(API_KEY, API_SECRET, ACCESS_TOKEN, ACCESS_TOKEN_SECRET)
-        api = tweepy.API(auth)
-        api.verify_credentials()
-        print("✅ Authenticated with Twitter.")
-        return api
+        if media_id:
+            api.update_status(status=tweet, media_ids=[media_id])
+        else:
+            api.update_status(status=tweet)
+        print("✅ Tweet geplaatst.")
     except Exception as e:
-        print("❌ Auth failed:", e)
-        return None
+        print(f"⚠️ Tweet fout: {e}")
 
 def main():
     api = authenticate()
-    if not api:
-        return
     articles = fetch_articles()
     if not articles:
-        print("❌ Geen artikelen gevonden.")
+        print("❌ Geen recente artikelen gevonden.")
         return
-    selected_title = select_article(articles)
-    if selected_title:
-        tweet_article(api, selected_title)
-    else:
-        print("❌ Geen geschikte tweet gevonden.")
+    title, entry = random.choice(list(articles.items()))
+    summary = entry.summary if 'summary' in entry else ""
+    image_url = extract_image_url(entry)
+    tweet_article(api, title, summary, image_url)
 
 if __name__ == "__main__":
     main()
