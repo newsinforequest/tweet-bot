@@ -1,6 +1,4 @@
-openai
-requests
-feedparser
-beautifulsoup4
-python-twitter
 tweepy
+feedparser
+requests
+beautifulsoup4
