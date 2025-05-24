@@ -6,7 +6,7 @@ import os
 import requests
 from bs4 import BeautifulSoup
 
-# Twitter API authenticatie
+# Twitter API authenticatie v2 (voor tweets)
 def authenticate_v2():
     return tweepy.Client(
         consumer_key=os.getenv("TWITTER_API_KEY"),
@@ -14,6 +14,16 @@ def authenticate_v2():
         access_token=os.getenv("TWITTER_ACCESS_TOKEN"),
         access_token_secret=os.getenv("TWITTER_ACCESS_SECRET")
     )
+
+# Twitter API authenticatie v1.1 (voor media upload)
+def authenticate_v1():
+    auth = tweepy.OAuth1UserHandler(
+        os.getenv("TWITTER_API_KEY"),
+        os.getenv("TWITTER_API_SECRET"),
+        os.getenv("TWITTER_ACCESS_TOKEN"),
+        os.getenv("TWITTER_ACCESS_SECRET")
+    )
+    return tweepy.API(auth)
 
 # RSS-feeds per continent (5 per continent)
 RSS_FEEDS = {
@@ -54,38 +64,14 @@ RSS_FEEDS = {
     ]
 }
 
-# Fallback wereldwijde feeds (100 stuks, verkort voorbeeld)
+# Fallback wereldwijde feeds (voorbeeld)
 FALLBACK_FEEDS = [
     "https://rss.cnn.com/rss/cnn_topstories.rss",
     "https://feeds.bbci.co.uk/news/rss.xml",
     "https://rss.nytimes.com/services/xml/rss/nyt/HomePage.xml",
     "https://www.aljazeera.com/xml/rss/all.xml",
     "https://feeds.foxnews.com/foxnews/latest",
-    "https://www.reutersagency.com/feed/?best-topics=top-news&post_type=best",
-    "https://www.washingtonpost.com/rss/",
-    "https://www.nbcnews.com/id/3032091/device/rss/rss.xml",
-    "https://www.cbsnews.com/latest/rss/main",
-    "https://abcnews.go.com/abcnews/topstories",
-    "https://www.reuters.com/tools/rss",
-    "https://www.economist.com/the-world-this-week/rss.xml",
-    "https://www.dw.com/en/top-stories/s-9097/rss",
-    "https://www.apnews.com/rss",
-    "https://www.bloomberg.com/feed/podcast/taking-stock.xml",
-    "https://www.aljazeera.com/xml/rss/all.xml",
-    "https://www.cnbc.com/id/100003114/device/rss/rss.html",
-    "https://globalvoices.org/-/world/feed/",
-    "https://feeds.bbci.co.uk/news/world/rss.xml",
-    "https://www.theguardian.com/uk/rss",
-    "https://www.telegraph.co.uk/news/rss.xml",
-    "https://rss.itv.com/news",
-    "https://www.independent.co.uk/news/uk/rss",
-    "https://globalnews.ca/feed/",
-    "https://www.ctvnews.ca/rss/ctvnews-ca-top-stories-public-rss-1.822009",
-    "https://www.cbc.ca/cmlink/rss-topstories",
-    "https://www.smh.com.au/rss/feed.xml",
-    "https://www.abc.net.au/news/feed/51120/rss.xml",
-    "https://www.news.com.au/feed",
-    # Voeg hier de rest toe tot je er 100 hebt
+    # etc. ...
 ]
 
 # HTML opschonen
@@ -118,7 +104,7 @@ def fetch_articles():
                         articles[title]["regions"].add(region)
                         if 'media_content' in entry:
                             articles[title]["image"] = entry.media_content[0].get('url', None)
-            except Exception as e:
+            except Exception:
                 continue
     return articles
 
@@ -162,7 +148,7 @@ def generate_title(text):
     words = text.strip().split()
     return " ".join(words[:random.randint(1, min(5, len(words)))])
 
-# Samenvatting → tweet
+# Samenvatting → tweet (270-280 tekens)
 def summarize_to_tweet(summary, max_len=280, min_len=270):
     text = clean_html(summary).replace("\n", " ").strip()
     if len(text) > max_len:
@@ -171,37 +157,52 @@ def summarize_to_tweet(summary, max_len=280, min_len=270):
         return text + ("." * (min_len - len(text)))
     return text
 
-# Tweet publiceren
-def tweet_article(client, title, summary, image_url=None):
-    tweet_title = generate_title(title)
+# Afbeelding downloaden en uploaden via v1.1 API
+def upload_image(api_v1, image_url):
+    try:
+        filename = "temp.jpg"
+        with open(filename, 'wb') as f:
+            f.write(requests.get(image_url).content)
+        media = api_v1.media_upload(filename)
+        os.remove(filename)
+        return media.media_id
+    except Exception as e:
+        print(f"Afbeelding upload mislukt: {e}")
+        return None
+
+# Tweet publiceren met v2 client en media via v1 API
+def tweet_article(client_v2, client_v1, title, summary, image_url=None):
+    tweet_title = generate_title(title).upper()
     tweet_body = summarize_to_tweet(summary)
-    full_text = f"{tweet_title.upper()}\n\n{tweet_body}"
+    full_text = f"{tweet_title}\n\n{tweet_body}"
     try:
         if image_url:
-            filename = "temp.jpg"
-            with open(filename, 'wb') as f:
-                f.write(requests.get(image_url).content)
-            media = client.media_upload(filename)
-            response = client.create_tweet(text=full_text, media_ids=[media.media_id])
-            os.remove(filename)
+            media_id = upload_image(client_v1, image_url)
+            if media_id:
+                response = client_v2.create_tweet(text=full_text, media_ids=[media_id])
+            else:
+                response = client_v2.create_tweet(text=full_text)
         else:
-            response = client.create_tweet(text=full_text)
+            response = client_v2.create_tweet(text=full_text)
         print("✅ Tweet geplaatst:", response.data["id"])
     except Exception as e:
         print("❌ Fout bij tweet:", e)
 
 # Main
 def main():
-    client = authenticate_v2()
+    client_v2 = authenticate_v2()
+    client_v1 = authenticate_v1()
+
     articles = fetch_articles()
     selection = select_article(articles)
+
     if selection:
         title, data = selection
-        tweet_article(client, title, data["summary"], data["image"])
+        tweet_article(client_v2, client_v1, title, data["summary"], data["image"])
     else:
         fallback = fetch_fallback_article()
         if fallback:
-            tweet_article(client, fallback["title"], fallback["summary"], fallback["image"])
+            tweet_article(client_v2, client_v1, fallback["title"], fallback["summary"], fallback["image"])
         else:
             print("❌ Geen geschikt artikel gevonden.")
 
