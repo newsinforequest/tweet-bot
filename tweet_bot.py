@@ -109,4 +109,28 @@ def generate_tweet(article):
 
     summary = article['summary']
     tweet = f"{clickbait_title} — {summary}"
-    tweet = tweet.replace('\n', ' ').replace('\r',
+    tweet = tweet.replace('\n', ' ').replace('\r', ' ').strip()
+    tweet = tweet[:279]  # Zorg dat het in 280 tekens blijft
+
+    return tweet
+
+# ============
+# Hoofdprogramma
+# ============
+def main():
+    print("✅ Nieuwsartikel ophalen...")
+    articles = fetch_articles()
+
+    if not articles:
+        print("❌ Geen artikelen gevonden.")
+        return
+
+    chosen_article = select_trending_topic(articles)
+    tweet_text = generate_tweet(chosen_article)
+
+    print(f"✅ Tweet klaar om te verzenden:\n{tweet_text}")
+    api.update_status(tweet_text)
+    print("✅ Tweet geplaatst.")
+
+if __name__ == "__main__":
+    main()
