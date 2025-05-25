@@ -44,7 +44,7 @@ jobs:
           python tweet_bot.py | tee tweet_log.txt
 
       - name: Upload log als artifact
-        uses: actions/upload-artifact@v3
+        uses: actions/upload-artifact@v3.1.2
         with:
           name: tweet-log
           path: tweet_log.txt
