@@ -1,7 +1,7 @@
 name: Tweet Bot
 
 on:
-  workflow_dispatch:  # Hiermee verschijnt de "Run workflow"-knop
+  workflow_dispatch:
   schedule:
     - cron: '0 0 * * *'
     - cron: '14 2 * * *'
@@ -13,6 +13,7 @@ on:
     - cron: '38 15 * * *'
     - cron: '52 17 * * *'
     - cron: '6 20 * * *'
+    - cron: '0 0 * * 1'  # Wekelijks opschonen op maandag om 00:00 UTC
 
 jobs:
   tweet:
@@ -34,6 +35,14 @@ jobs:
         run: |
           python -m nltk.downloader punkt stopwords
 
+      - name: Logbestand opschonen als maandag
+        run: |
+          if [ "$(date -u +%u)" = 1 ]; then echo "$(date -u) | ♻️ Wekelijkse log opschoning" > tweet_log.txt; fi
+
+      - name: Leeg logbestand initialiseren (indien niet opgeschoond)
+        run: |
+          echo "$(date -u) | 📝 Logbestand aangemaakt of bijgewerkt" >> tweet_log.txt
+
       - name: Tweet plaatsen
         env:
           TWITTER_API_KEY: ${{ secrets.TWITTER_API_KEY }}
@@ -41,3 +50,10 @@ jobs:
           TWITTER_ACCESS_TOKEN: ${{ secrets.TWITTER_ACCESS_TOKEN }}
           TWITTER_ACCESS_SECRET: ${{ secrets.TWITTER_ACCESS_SECRET }}
         run: python tweet_bot.py
+
+      - name: Artifact uploaden (logbestand)
+        if: always()
+        uses: actions/upload-artifact@v3
+        with:
+          name: tweet-log
+          path: tweet_log.txt
