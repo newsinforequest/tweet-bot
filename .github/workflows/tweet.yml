@@ -42,8 +42,7 @@ jobs:
           TWITTER_ACCESS_SECRET: ${{ secrets.TWITTER_ACCESS_SECRET }}
         run: python tweet_bot.py
 
-      - name: Tweetlog uploaden als artifact
-        if: always()
+      - name: Upload logbestand als artifact
         uses: actions/upload-artifact@v3
         with:
           name: tweet-log
