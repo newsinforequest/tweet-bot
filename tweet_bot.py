@@ -19,7 +19,6 @@ except:
     pass
 
 EN_STOPWORDS = set(stopwords.words('english'))
-LOG_FILE = "tweet_log.txt"
 
 RSS_FEEDS = {
     "Europa": [
@@ -67,12 +66,6 @@ RSS_FEEDS = {
         "https://www.nzherald.co.nz/rss/"
     ]
 }
-
-def log(message):
-    timestamp = datetime.utcnow().strftime("%Y-%m-%d %H:%M:%S")
-    with open(LOG_FILE, "a", encoding="utf-8") as f:
-        f.write(f"[{timestamp} UTC] {message}\n")
-    print(message)
 
 def authenticate_v2():
     client = tweepy.Client(
@@ -124,8 +117,8 @@ def fetch_recent_articles():
                             "link": entry.link.strip(),
                             "published": pub_time
                         })
-            except Exception as e:
-                log(f"⚠️ Fout bij feed {url}: {e}")
+            except:
+                pass
 
     return articles
 
@@ -143,8 +136,7 @@ def extract_article_text(url):
             text = translate_to_english(text)
 
         return text
-    except Exception as e:
-        log(f"⚠️ Kan artikel niet openen of vertalen: {url} - {e}")
+    except:
         return ""
 
 def detect_common_topic(articles):
@@ -184,26 +176,22 @@ def generate_clickbait(text):
 
 def tweet_article(client, summary_text):
     if detect_language(summary_text) != "en":
-        log("⚠️ Samenvatting is niet in het Engels, tweet wordt overgeslagen.")
         return
     clickbait = generate_clickbait(summary_text)
     tweet = f"{clickbait}\n\n{summary_text}"
     tweet = tweet.replace('\n', ' ').replace('\r', ' ').strip()
     try:
-        response = client.create_tweet(text=tweet)
-        log(f"✅ Tweet geplaatst: {tweet} (ID: {response.data['id']})")
+        client.create_tweet(text=tweet)
     except tweepy.TooManyRequests:
-        log("⛔ Te veel verzoeken (429), script stopt tot volgende cyclus.")
+        print("⛔ Te veel verzoeken (429), script stopt tot volgende cyclus.")
         exit(0)
     except Exception as e:
-        log(f"⚠️ Tweet mislukt: {e}")
+        print(f"⚠️ Tweet mislukt: {e}")
 
 def main():
-    log("🚀 Start tweetcyclus")
     client = authenticate_v2()
     articles = fetch_recent_articles()
     if not articles:
-        log("❌ Geen artikelen gevonden.")
         return
 
     while articles:
@@ -219,8 +207,6 @@ def main():
                 articles = [a for a in articles if a["title"] != best_title]
         else:
             break
-
-    log("❌ Geen geschikt artikel gevonden met voldoende lengte.")
 
 if __name__ == "__main__":
     main()
