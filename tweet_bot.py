@@ -20,6 +20,8 @@ except:
 
 EN_STOPWORDS = set(stopwords.words('english'))
 
+LOGFILE = "tweet_log.txt"
+
 def authenticate_v2():
     client = tweepy.Client(
         consumer_key=os.getenv("TWITTER_API_KEY"),
@@ -175,6 +177,42 @@ def generate_clickbait(text):
     summary = rewrite_text(text, 20, 60)
     return summary.upper()
 
+def log_attempt(success: bool, error_msg: str = ""):
+    now = datetime.utcnow().strftime("%Y-%m-%d %H:%M:%S")
+    if success:
+        line = f"{now} | ✅ Succesvol getweet\n"
+    else:
+        line = f"{now} | ⚠️ Tweet mislukt: {error_msg}\n"
+        if "429" in error_msg:
+            line += f"{now} | ⛔ Rate limit gedetecteerd, tweetcyclus gestopt\n"
+    with open(LOGFILE, "a", encoding="utf-8") as f:
+        f.write(line)
+
+def summarize_logs():
+    try:
+        cutoff = datetime.utcnow() - timedelta(hours=24)
+        total = 0
+        success = 0
+        rate_limited = 0
+        with open(LOGFILE, "r", encoding="utf-8") as f:
+            for line in f:
+                try:
+                    timestamp = datetime.strptime(line[:19], "%Y-%m-%d %H:%M:%S")
+                    if timestamp >= cutoff:
+                        if "Succesvol" in line:
+                            success += 1
+                            total += 1
+                        elif "Tweet mislukt" in line:
+                            total += 1
+                            if "429" in line:
+                                rate_limited += 1
+                except:
+                    continue
+        with open(LOGFILE, "a", encoding="utf-8") as f:
+            f.write(f"{datetime.utcnow().strftime('%Y-%m-%d %H:%M:%S')} | 📊 Statistiek laatste 24u: Pogingen: {total}, Succesvol: {success}, 429-fouten: {rate_limited}\n\n")
+    except Exception as e:
+        print(f"⚠️ Fout bij loganalyse: {e}")
+
 def tweet_article(client, summary_text):
     if detect_language(summary_text) != "en":
         print("⚠️ Samenvatting is niet in het Engels, tweet wordt overgeslagen.")
@@ -184,15 +222,24 @@ def tweet_article(client, summary_text):
     tweet = tweet.replace('\n', ' ').replace('\r', ' ').strip()
     try:
         response = client.create_tweet(text=tweet)
+        log_attempt(True)
         print(f"✅ Tweet geplaatst: {tweet} (ID: {response.data['id']})")
     except Exception as e:
-        print(f"⚠️ Tweet mislukt: {e}")
+        error_msg = str(e)
+        log_attempt(False, error_msg)
+        if "429" in error_msg:
+            print("⛔ Te veel verzoeken (429), script stopt tot volgende cyclus.")
+            summarize_logs()
+            exit(0)
+        else:
+            print(f"⚠️ Tweet mislukt: {error_msg}")
 
 def main():
     client = authenticate_v2()
     articles = fetch_recent_articles()
     if not articles:
         print("❌ Geen artikelen gevonden.")
+        summarize_logs()
         return
 
     while articles:
@@ -203,6 +250,7 @@ def main():
                 if detect_language(rewritten) != "en":
                     rewritten = translate_to_english(rewritten)
                 tweet_article(client, rewritten)
+                summarize_logs()
                 return
             else:
                 articles = [a for a in articles if a["title"] != best_title]
@@ -210,6 +258,7 @@ def main():
             break
 
     print("❌ Geen geschikt artikel gevonden met voldoende lengte.")
+    summarize_logs()
 
 if __name__ == "__main__":
     main()
