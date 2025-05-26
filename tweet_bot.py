@@ -69,15 +69,14 @@ RSS_FEEDS = {
 
 MAX_ATTEMPTS = 5
 
-
-def authenticate_v2():
-    client = tweepy.Client(
-        consumer_key=os.getenv("TWITTER_API_KEY"),
-        consumer_secret=os.getenv("TWITTER_API_SECRET"),
-        access_token=os.getenv("TWITTER_ACCESS_TOKEN"),
-        access_token_secret=os.getenv("TWITTER_ACCESS_SECRET")
+def authenticate_v1():
+    auth = tweepy.OAuth1UserHandler(
+        os.getenv("TWITTER_API_KEY"),
+        os.getenv("TWITTER_API_SECRET"),
+        os.getenv("TWITTER_ACCESS_TOKEN"),
+        os.getenv("TWITTER_ACCESS_SECRET")
     )
-    return client
+    return tweepy.API(auth)
 
 def detect_language(text):
     try:
@@ -250,7 +249,7 @@ def tweet_article(client, summary_text, article_url):
     tweet = tweet.replace('\n', ' ').replace('\r', ' ').strip()
 
     try:
-        client.create_tweet(text=tweet)
+        client.update_status(tweet)
         return True
     except tweepy.TooManyRequests:
         print("⛔ Te veel verzoeken (429), script stopt tot volgende cyclus.")
@@ -260,7 +259,7 @@ def tweet_article(client, summary_text, article_url):
         return False
 
 def main():
-    client = authenticate_v2()
+    client = authenticate_v1()
     articles = fetch_recent_articles()
     if not articles:
         return
