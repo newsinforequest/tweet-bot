@@ -99,7 +99,7 @@ def translate_to_english(text):
 
 def fetch_recent_articles():
     now = datetime.utcnow()
-    one_hour_ago = now - timedelta(hours=1)
+    three_hours_ago = now - timedelta(hours=3)
     articles = []
 
     for feeds in RSS_FEEDS.values():
@@ -111,7 +111,7 @@ def fetch_recent_articles():
                         pub_time = datetime(*entry.published_parsed[:6])
                     except (AttributeError, TypeError):
                         continue
-                    if pub_time >= one_hour_ago:
+                    if pub_time >= three_hours_ago:
                         articles.append({
                             "title": entry.title.strip(),
                             "link": entry.link.strip(),
@@ -129,7 +129,16 @@ def extract_article_text(url):
         soup = BeautifulSoup(resp.content, 'html.parser')
 
         paragraphs = soup.find_all('p')
-        text = ' '.join([p.get_text() for p in paragraphs])
+        cleaned_paragraphs = []
+        for p in paragraphs:
+            text = p.get_text().strip()
+            if len(text) < 40:
+                continue
+            if re.search(r'(?i)(privacy|newsletter|search|contact|language|subscribe|cookie)', text):
+                continue
+            cleaned_paragraphs.append(text)
+
+        text = ' '.join(cleaned_paragraphs)
         text = re.sub(r'\s+', ' ', text).strip()
 
         if detect_language(text) != "en":
@@ -174,9 +183,16 @@ def generate_clickbait(text):
     summary = rewrite_text(text, 20, 60)
     return summary.upper()
 
+def clean_summary_text(text):
+    text = re.sub(r'\(Photo:.*?\)', '', text)
+    text = re.sub(r'(?i)^(search the news|personalise the news|emergency backstory|newsletters|[a-z\s]{0,20}(中文|BERITA|TOK PISIN|ABC|TOPIC).{0,20})[:\s-]*', '', text)
+    text = re.sub(r'\s+', ' ', text).strip()
+    return text
+
 def tweet_article(client, summary_text):
     if detect_language(summary_text) != "en":
         return
+    summary_text = clean_summary_text(summary_text)
     clickbait = generate_clickbait(summary_text)
     tweet = f"{clickbait}\n\n{summary_text}"
     tweet = tweet.replace('\n', ' ').replace('\r', ' ').strip()
